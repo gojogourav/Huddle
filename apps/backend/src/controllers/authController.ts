@@ -1,24 +1,15 @@
 import jwt from 'jsonwebtoken'
-import { Request, Response } from 'express'
+import { json, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
-import { prisma } from '../utils/utils'
+import { prisma, ratelimiterVerify, redisClient } from '../utils/utils'
 import { Resend } from 'resend'
+import  crypto from 'crypto'
 //redis stuff
 import Redis from 'ioredis'
 import { RateLimiterRedis } from 'rate-limiter-flexible'
-import { emailTemplate } from '../utils/emailTemplate'
-
-
-const redisClient = new Redis(6379)
-
-const opts = {
-    storeClient: redisClient,
-    points: 5,
-    duration: 10,
-    blockDuration: 10,
-}
-const ratelimiter = new RateLimiterRedis(opts)
-
+import { sendResendEmail } from '../utils/emailTemplate'
+import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types'
+import { ratelimiterSignInSignUp } from '../utils/utils'
 interface registerUserPayload {
     name: string,
     email: string,
@@ -65,7 +56,7 @@ export const registerUser = async (req: Request<registerUserPayload>, res: Respo
         }
         console.log(ip);
 
-        await ratelimiter.consume(ip)
+        await ratelimiterSignInSignUp.consume(ip)
     } catch (error) {
         console.log(error);
 
@@ -127,7 +118,7 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
     }
     console.log(ip);
     try {
-        await ratelimiter.consume(ip);
+        await ratelimiterSignInSignUp.consume(ip);
     } catch (rateLimitError) {
         res.status(429).json({ message: "Please wait 10 seconds before another request" });
         return
@@ -176,22 +167,29 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
             return
         }
 
-        const otp = String( Math.floor(100000 + (Math.random() * 900000)))
-        
-        try{
+        function generateSixDigitNumber() {
+            const buffer = crypto.randomBytes(4);
+            const randomInt = buffer.readInt32BE();
+            let randomSixDigit = randomInt% 900000 + 100000;
+            if(randomSixDigit<0) randomSixDigit=randomSixDigit*-1
+            return randomSixDigit;
+          }
 
-            const { data, error } = await resend.emails.send({
-                from: 'Acme <onboarding@resend.dev>',
-                to: [`${user.email}`],
-                subject: 'Your Hubble Login Code: ${otp}`',
-                html: emailTemplate(`${otp}`),
-            });
-            if (error) {
-                console.error('Resend Error:', error);
-                res.status(500).json({ message: 'Failed to send OTP email. Please try again later.' });
-                return
-            }
+          function generateVerificationUUID(){
+            return crypto.randomUUID();
+          }
+          
+        try{
+            const otp = String(generateSixDigitNumber())
+            await sendResendEmail(otp,user.email,res)
+            const verificationID = generateVerificationUUID()
+            const salt = await bcrypt.genSalt(12)
+            const hashedOTP = await bcrypt.hash(otp,salt)
+
+            redisClient.setex(`verifyId:${verificationID}`,15*60,JSON.stringify({userID:user.id,otp:hashedOTP}))
+
          res.status(200).json({
+            verifyId:verificationID,
             message: 'OTP sent successfully. Please verify to complete login.',
             email: user.email
         });
@@ -216,9 +214,35 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
 
 export const verify = async (req: Request<{ id: string }>, res: Response) => {
     try {
-        const { id } = await req.params;
+        const { id } =  req.params;
+        const otpData = await redisClient.get(`verifyId:${id}`)
+        if(!otpData) {
+            throw new Error("Unauthorized access")
+        } 
+        const data = JSON.parse(otpData);
 
+        const {otp} = req.body;
+
+        const verifyOTP = await bcrypt.compare(otp,data.otp)
+        try{
+            ratelimiterVerify.consume(`${data.verifyId}`)
+
+        }catch(error){
+            res.status(500).json({message:"Please wait few moments before trying"})
+            return
+        }
+        if(!verifyOTP){
+
+            res.status(401).json({message:"Failed to authenticate user"})
+            return;
+        }
+        
+        generateToken(res,data.userID)
+        
+        res.status(201).json({message:"Successfully logged in please continue"})
     } catch (error) {
-
+        console.error(error);
+        res.status(500).json({error:"Unauthorized access"})
+        return;
     }
 }

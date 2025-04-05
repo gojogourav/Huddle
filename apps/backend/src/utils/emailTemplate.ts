@@ -1,4 +1,9 @@
-export const emailTemplate = (otp:string)=>{
+import { Response } from "express"
+import { Resend } from "resend"
+import { ratelimiterEmail } from "./utils"
+const resend = new Resend(process.env.RESEND_API_KEY)
+
+export const emailTemplate = (otp: string) => {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -148,4 +153,31 @@ export const emailTemplate = (otp:string)=>{
     </table>
 </body>
 </html>`
+}
+
+export const sendResendEmail = async (otp: string, email: string,res:Response)=> {
+    try{
+        const { data, error } = await resend.emails.send({
+            from: 'Acme <onboarding@resend.dev>',
+            to: [`${email}`],
+            subject: 'Your Hubble Login Code: ${otp}`',
+            html: emailTemplate(`${otp}`),
+        });
+        if (error) {
+            console.error('Resend Error:', error);
+            res.status(500).json({ message: 'Failed to send OTP email. Please try again later.' });
+            return
+        }
+        try{
+
+            ratelimiterEmail.consume(email)
+        }catch(err){
+            res.status(500).json({message:"please wait few moments before continuing"})
+            return;
+        }
+
+    }catch(error){
+        console.error("Failed to send email");
+        res.status(500).json({message:"Failed to send email"})
+    }
 }
