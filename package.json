@@ -23,6 +23,11 @@
     "packages/*"
   ],
   "dependencies": {
-    "@prisma/client": "^6.5.0"
+    "@prisma/client": "^6.5.0",
+    "crypto-js": "^4.2.0",
+    "ioredis": "^5.6.0",
+    "rate-limiter-flexible": "^7.0.0",
+    "redis": "^4.7.0",
+    "resend": "^4.2.0"
   }
 }
