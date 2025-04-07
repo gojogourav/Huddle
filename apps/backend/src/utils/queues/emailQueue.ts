@@ -1,7 +1,7 @@
 import { redisClient as bullMqConnection } from "../../config/redisConnection";
 import { Queue, Worker } from "bullmq";
 import { sendResendEmail } from "../emailTemplate";
-
+import { response, Response } from "express";
 export const emailQueue = new Queue('email-queue', {
     connection: bullMqConnection,
     defaultJobOptions: {
@@ -11,8 +11,8 @@ export const emailQueue = new Queue('email-queue', {
 })
 
 export const emailWorker = new Worker('email-queue', async job => {
-    const { email, otp, soketId } = job.data;
-    await sendResendEmail(otp, email, soketId)
+    const { email, otp } = job.data;
+    await sendResendEmail(otp, email,response)
 }, {
     connection: bullMqConnection,
     limiter: {
@@ -27,3 +27,4 @@ console.log('BullMQ Email Queue is initialized');
 emailQueue.on('error',(error)=>{
     console.error('Error in bullmq queue', error);
 })
+

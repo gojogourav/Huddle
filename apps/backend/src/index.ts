@@ -1,11 +1,16 @@
 import express from 'express'
 import cookieParser from 'cookie-parser'
 import authRoutes from './routes/authRoutes'
+import userRoutes from './routes/userRoutes'
 import { Server, Socket } from 'socket.io';
 const app = express()
 import http from 'http'
-import { redisClient } from './config/redisConnection';
+import cors from 'cors'
 
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials:true
+}))
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app)
 const io = new Server(server,{
@@ -16,42 +21,15 @@ const io = new Server(server,{
 })
 
 io.on('connection', (socket) => {
-    const loginData = {
-        identifier: "user@example.com",
-        password: "yourPassword",
-        socketId: socket.id // Send the connected socket id
-    };
-
-    fetch("http://localhost:5000/api/users/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loginData)
-    })
-    .then(res => res.json())
-    .then(data => console.log(data))
-    .catch(err => console.error(err));
-
 
     console.log('Client connected', socket.id);
-    const redisSub = redisClient.duplicate();
-    try {
-
-        redisSub.subscribe(socket.id)
-    } catch (error) {
-        console.error('Subsccription Error', (error as Error).message);
-
-    }
-    redisSub.on('message', (channel: string, message: string) => {
-        if (channel === socket.id) {
-            socket.emit('otp-status', JSON.parse(message));
-        }
+    
+    socket.on('disconnect', (reason) => {
+        console.log(`Client disconnected: ${socket.id}. Reason: ${reason}`);
     });
 
-    socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
-        redisSub.unsubscribe();
-        redisSub.quit();
-    });
+
+    socket.on('error', (error) => console.error(`Socket Error (${socket.id}):`, error));
 
 
 })
@@ -60,8 +38,9 @@ io.on('connection', (socket) => {
 app.use(express.json());
 app.use(cookieParser())
 app.use('/api/auth', authRoutes)
+app.use('/api/user', userRoutes)
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 
 })

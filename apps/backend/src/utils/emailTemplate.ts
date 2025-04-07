@@ -166,7 +166,8 @@ export const sendResendEmail = async (otp: string, email: string,res:Response)=>
         if (error) {
             console.error('Resend Error:', error);
             res.status(500).json({ message: 'Failed to send OTP email. Please try again later.' });
-            return
+            throw new Error(`Resend API Error: ${error.message || 'Unknown error'}`);
+
         }
         try{
 
@@ -178,7 +179,8 @@ export const sendResendEmail = async (otp: string, email: string,res:Response)=>
 
     }catch(error){
         console.error("Failed to send email");
-        res.status(500).json({message:"Failed to send email"})
+        res.status(500).json({message:"Failed to send email"});
+        throw error;
     }
 }
 

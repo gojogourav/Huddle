@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useState } from 'react'
 import * as z from 'zod'
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -16,6 +16,7 @@ import {
     FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useRouter } from 'next/navigation'
 
 const formSchema = z.object({
     username: z.string().min(2, {
@@ -27,6 +28,12 @@ const formSchema = z.object({
 })
 
 function LoginForm() {
+    const router = useRouter();
+
+    const [isLoading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -35,8 +42,37 @@ function LoginForm() {
         },
     })
 
-    function onSubmit(values: z.infer<typeof formSchema>) {
-        console.log(values)
+    async function onSubmit(values: z.infer<typeof formSchema>) {
+        setLoading(true);
+        setError(null);
+
+        try {
+            const requestBody = {
+                identifier: values.username,
+                password: values.password
+            }
+            const backendURL = process.env.BACKEND_URL || "http://localhost:5000";
+            const response = await fetch(`${backendURL}/api/auth/login`, {
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody)
+            })
+            const data = await response.json()
+            if (!response.ok) {
+                setError('Failed to login');
+                return
+            }
+
+            await router.push(`/verify/${data.verifyId}`)
+
+
+        } catch (error) {
+            setError('Failed to Login');
+            console.error('error in submitting login form ', error);
+
+        }
     }
 
     return (
@@ -52,10 +88,10 @@ function LoginForm() {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormControl>
-                                        <Input 
-                                            placeholder="Username" 
-                                            {...field} 
-                                            className="border-gray-300 focus:ring-2 focus:ring-indigo-500" 
+                                        <Input
+                                            placeholder="Username"
+                                            {...field}
+                                            className="border-gray-300 focus:ring-2 focus:ring-indigo-500"
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -68,11 +104,11 @@ function LoginForm() {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormControl>
-                                        <Input 
+                                        <Input
                                             type="password"
-                                            placeholder="Password" 
-                                            {...field} 
-                                            className="border-gray-300 focus:ring-2 focus:ring-indigo-500" 
+                                            placeholder="Password"
+                                            {...field}
+                                            className="border-gray-300 focus:ring-2 focus:ring-indigo-500"
                                         />
                                     </FormControl>
                                     <FormMessage />
@@ -92,6 +128,7 @@ function LoginForm() {
                         </div>
                     </form>
                 </Form>
+                <div>Please login to continue</div>
             </div>
         </div>
     )

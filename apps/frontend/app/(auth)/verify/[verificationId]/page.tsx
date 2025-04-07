@@ -40,8 +40,24 @@ function page({ params }: { params: Promise<{ verificationId: string }> }) {
             pin: "",
         },
     })
-    async function onSubmit(data: z.infer<typeof FormSchema>) {
-       
+    async function onSubmit(values: z.infer<typeof FormSchema>) {
+        const backendURL = process.env.BACKEND_URL || "http://localhost:5000";
+        const OTPbody = {
+            otp:values.pin
+        }
+        const response = await fetch(`${backendURL}/api/auth/verify/${(await params).verificationId}`,{
+            method:"POST",
+            headers: {
+                'Content-Type': 'application/json',
+                
+            },
+            body:JSON.stringify(OTPbody),
+            credentials: 'include'
+        })
+
+        const data = await response.json()
+        console.log(JSON.stringify(data));
+        
     }
 
     return (
