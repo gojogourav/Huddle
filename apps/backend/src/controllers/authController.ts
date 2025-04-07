@@ -1,15 +1,12 @@
 import jwt from 'jsonwebtoken'
 import { json, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
-import { prisma, ratelimiterVerify, redisClient } from '../utils/utils'
+import { prisma, ratelimiterVerify } from '../utils/utils'
 import { Resend } from 'resend'
+import { redisClient } from '../config/redisConnection'
 import  crypto from 'crypto'
-//redis stuff
-import Redis from 'ioredis'
-import { RateLimiterRedis } from 'rate-limiter-flexible'
-import { sendResendEmail } from '../utils/emailTemplate'
-import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types'
 import { ratelimiterSignInSignUp } from '../utils/utils'
+import { emailQueue } from '../utils/queues/emailQueue'
 interface registerUserPayload {
     name: string,
     email: string,
@@ -170,7 +167,7 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
         function generateSixDigitNumber() {
             const buffer = crypto.randomBytes(4);
             const randomInt = buffer.readInt32BE();
-            let randomSixDigit = randomInt% 900000 + 100000;
+            let randomSixDigit = randomInt% 1000000;
             if(randomSixDigit<0) randomSixDigit=randomSixDigit*-1
             return randomSixDigit;
           }
@@ -181,12 +178,25 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
           
         try{
             const otp = String(generateSixDigitNumber())
-            await sendResendEmail(otp,user.email,res)
             const verificationID = generateVerificationUUID()
             const salt = await bcrypt.genSalt(12)
             const hashedOTP = await bcrypt.hash(otp,salt)
 
+
+            const {socketId} = req.body;
+            if(!socketId){
+                res.status(400).json({message:"Soket id not provided"})
+                return;
+
+            }
+            
+            await emailQueue.add('send-otp',{
+                email:user.email,
+                otp,
+                socketId
+            })
             redisClient.setex(`verifyId:${verificationID}`,15*60,JSON.stringify({userID:user.id,otp:hashedOTP}))
+
 
          res.status(200).json({
             verifyId:verificationID,
@@ -225,7 +235,7 @@ export const verify = async (req: Request<{ id: string }>, res: Response) => {
 
         const verifyOTP = await bcrypt.compare(otp,data.otp)
         try{
-            ratelimiterVerify.consume(`${data.verifyId}`)
+            ratelimiterVerify.consume(`${id}`)
 
         }catch(error){
             res.status(500).json({message:"Please wait few moments before trying"})

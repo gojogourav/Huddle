@@ -181,3 +181,4 @@ export const sendResendEmail = async (otp: string, email: string,res:Response)=>
         res.status(500).json({message:"Failed to send email"})
     }
 }
+

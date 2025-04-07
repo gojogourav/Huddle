@@ -11,6 +11,7 @@
   "devDependencies": {
     "prettier": "^3.5.3",
     "prisma": "^6.5.0",
+    "tsconfig-paths": "^4.2.0",
     "turbo": "^2.5.0",
     "typescript": "5.8.2"
   },
@@ -24,10 +25,13 @@
   ],
   "dependencies": {
     "@prisma/client": "^6.5.0",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "bullmq": "^5.47.1",
     "crypto-js": "^4.2.0",
     "ioredis": "^5.6.0",
     "rate-limiter-flexible": "^7.0.0",
     "redis": "^4.7.0",
-    "resend": "^4.2.0"
+    "resend": "^4.2.0",
+    "socket.io": "^4.8.1"
   }
 }

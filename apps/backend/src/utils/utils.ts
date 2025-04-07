@@ -1,9 +1,8 @@
 import { PrismaClient } from "@prisma/client";
-import Redis from "ioredis";
 import { RateLimiterRedis } from "rate-limiter-flexible";
-
+import { redisClient } from "../config/redisConnection";
 export const prisma = new PrismaClient()
-export const redisClient = new Redis(6379)
+
 const optsSignInSignUp = {
     storeClient: redisClient,
     points: 5,
@@ -25,4 +24,5 @@ const optVerify = {
 export const ratelimiterSignInSignUp = new RateLimiterRedis(optsSignInSignUp)
 export const ratelimiterEmail = new RateLimiterRedis(optEmail)
 export const ratelimiterVerify = new RateLimiterRedis(optVerify)
+
 

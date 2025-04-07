@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 function Bottombar() {
     const path = usePathname();
 
-    if (path.includes('/auth')) {
+    if (path.includes('/register')||path.includes('/login')||path.includes('/signup')||path.includes('/dashboard')||path.includes('/verify/')) {
         return null; 
     }
     const navLinks = [
