@@ -18,6 +18,8 @@ model User {
   name         String?
   username     String        @unique
   email        String        @unique
+  bio          String?
+  profilePic   String?
   passwordHash String
   followers    UserFollows[] @relation("Followers")
   following    UserFollows[] @relation("Following")
@@ -25,7 +27,7 @@ model User {
   comments     Comment[]     @relation("UserComments")
   likes        Like[]        @relation("UserLikes")
   tags         Post[]        @relation("UserTags")
-  createdAt DateTime @default(now())
+  createdAt    DateTime      @default(now())
 }
 
 model UserFollows {
@@ -39,27 +41,28 @@ model UserFollows {
 }
 
 model Post {
-  id       String    @id @default(uuid())
-  user     User      @relation("UserPost", fields: [userId], references: [id])
-  userId   String
-  url      String
-  text     String
-  tag      User[]    @relation("UserTags")  
-  location String
-  comments Comment[] @relation("PostComments")
-  likes    Like[]    @relation("PostLikes")
-  createdAt DateTime @default(now())
+  id     String @id @default(uuid())
+  user   User   @relation("UserPost", fields: [userId], references: [id])
+  userId String
+  url    String
+  text   String
+  tag    User[] @relation("UserTags")
+
+  location  String
+  comments  Comment[] @relation("PostComments")
+  likes     Like[]    @relation("PostLikes")
+  createdAt DateTime  @default(now())
 }
 
 model Comment {
-  id     String @id @default(uuid())
-  text   String
-  post   Post   @relation("PostComments", fields: [postId], references: [id])
-  postId String
-  user   User   @relation("UserComments", fields: [userId], references: [id])
-  userId String
-  likes  Like[] @relation("CommentLikes")
-   createdAt DateTime @default(now()) 
+  id        String   @id @default(uuid())
+  text      String
+  post      Post     @relation("PostComments", fields: [postId], references: [id])
+  postId    String
+  user      User     @relation("UserComments", fields: [userId], references: [id])
+  userId    String
+  likes     Like[]   @relation("CommentLikes")
+  createdAt DateTime @default(now())
 }
 
 model Like {
