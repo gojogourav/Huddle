@@ -57,7 +57,9 @@ function page({ params }: { params: Promise<{ verificationId: string }> }) {
 
         const data = await response.json()
         console.log(JSON.stringify(data));
-        
+        router.push('/');
+
+        return;
     }
 
     return (

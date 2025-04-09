@@ -14,9 +14,61 @@ datasource db {
 }
 
 model User {
-  id           String @id @default(uuid())
+  id           String        @id @default(uuid())
   name         String?
-  username     String @unique
-  email        String @unique
+  username     String        @unique
+  email        String        @unique
   passwordHash String
+  followers    UserFollows[] @relation("Followers")
+  following    UserFollows[] @relation("Following")
+  posts        Post[]        @relation("UserPost")
+  comments     Comment[]     @relation("UserComments")
+  likes        Like[]        @relation("UserLikes")
+  tags         Post[]        @relation("UserTags")
+  createdAt DateTime @default(now())
+}
+
+model UserFollows {
+  followerId  String
+  followingId String
+  follower    User     @relation("Following", fields: [followerId], references: [id])
+  following   User     @relation("Followers", fields: [followingId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@id([followerId, followingId])
+}
+
+model Post {
+  id       String    @id @default(uuid())
+  user     User      @relation("UserPost", fields: [userId], references: [id])
+  userId   String
+  url      String
+  text     String
+  tag      User[]    @relation("UserTags")  
+  location String
+  comments Comment[] @relation("PostComments")
+  likes    Like[]    @relation("PostLikes")
+  createdAt DateTime @default(now())
+}
+
+model Comment {
+  id     String @id @default(uuid())
+  text   String
+  post   Post   @relation("PostComments", fields: [postId], references: [id])
+  postId String
+  user   User   @relation("UserComments", fields: [userId], references: [id])
+  userId String
+  likes  Like[] @relation("CommentLikes")
+   createdAt DateTime @default(now()) 
+}
+
+model Like {
+  id        String   @id @default(uuid())
+  post      Post?    @relation("PostLikes", fields: [postId], references: [id])
+  postId    String?
+  comment   Comment? @relation("CommentLikes", fields: [commentId], references: [id])
+  commentId String?
+  user      User     @relation("UserLikes", fields: [userId], references: [id])
+  userId    String
+  createdAt DateTime @default(now())
 }

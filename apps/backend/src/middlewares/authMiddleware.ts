@@ -14,7 +14,7 @@ export const authMiddleware = async (req: AuthenticationRequest, res: Response, 
 
         if (access_token) {
             try {
-                const decoded = jwt.verify(access_token, process.env.JWT_SECRET!) as JwtPayload;
+                const decoded = await jwt.verify(access_token, process.env.JWT_SECRET!) as JwtPayload;
                 req.user = { id: decoded.id };
                 return next();
             } catch (accessTokenError) {

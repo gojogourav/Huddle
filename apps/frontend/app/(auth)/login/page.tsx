@@ -66,7 +66,7 @@ function LoginForm() {
             }
 
             await router.push(`/verify/${data.verifyId}`)
-
+            
 
         } catch (error) {
             setError('Failed to Login');
@@ -115,7 +115,7 @@ function LoginForm() {
                                 </FormItem>
                             )}
                         />
-                        <Button type="submit" className="w-full py-3 bg-[#ff0050] hover:bg-[#000000] text-white rounded-md transition-colors">
+                        <Button type="submit" className="w-full py-3 bg-[#ff0050] cursor-pointer hover:bg-[#000000] text-white rounded-md transition-colors">
                             Login
                         </Button>
                         <div className="text-center mt-4">
