@@ -2,6 +2,9 @@ import express from 'express'
 import cookieParser from 'cookie-parser'
 import authRoutes from './routes/authRoutes'
 import userRoutes from './routes/userRoutes'
+import likeRoutes from './routes/LikeRoutes'
+import CommentRoutes from './routes/CommentRoutes'
+import postRoutes from './routes/postRoutes'
 import { Server, Socket } from 'socket.io';
 const app = express()
 import http from 'http'
@@ -39,7 +42,9 @@ app.use(express.json());
 app.use(cookieParser())
 app.use('/api/auth', authRoutes)
 app.use('/api/user', userRoutes)
-
+app.use('/api/like',likeRoutes)
+app.use('/api/comment',CommentRoutes)
+app.use('/api/post',postRoutes)
 server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 

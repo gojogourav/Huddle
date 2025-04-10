@@ -2,7 +2,7 @@ import { prisma } from "../utils/utils";
 import { NextFunction, Request, Response } from "express";
 import jwt, { JwtPayload } from 'jsonwebtoken'
 
-export interface AuthenticationRequest extends Request {
+export interface AuthenticationRequest<P=any,ResBody = any,ReqBody=any,ReqQuery=any> extends Request<P,ResBody,ReqBody,ReqQuery> {
     user?: { id: string }
 }
 
@@ -69,6 +69,8 @@ export const authMiddleware = async (req: AuthenticationRequest, res: Response, 
     catch (error) {
         console.error('Authentication error:', error);
          res.status(500).json({ message: 'Internal server error' });
+         res.clearCookie('access_token');
+         res.clearCookie('refresh_token')
         return;
     }
 }

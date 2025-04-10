@@ -1,10 +1,10 @@
 import jwt from 'jsonwebtoken'
-import {  Request, Response } from 'express'
+import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { prisma, ratelimiterVerify } from '../utils/utils'
 import { Resend } from 'resend'
 import { redisClient } from '../config/redisConnection'
-import  crypto from 'crypto'
+import crypto from 'crypto'
 import { ratelimiterSignInSignUp } from '../utils/utils'
 import { emailQueue } from '../utils/queues/emailQueue'
 interface registerUserPayload {
@@ -39,7 +39,7 @@ const generateToken = (res: Response, id: string) => {
     })
 }
 
-export const registerUser = async (req: Request<registerUserPayload>, res: Response):Promise<void> => {
+export const registerUser = async (req: Request<registerUserPayload>, res: Response): Promise<void> => {
     const { email, username, password, name } = await req.body;
     try {
         const forwardedFor = req.headers['x-forwarded-for']
@@ -57,7 +57,7 @@ export const registerUser = async (req: Request<registerUserPayload>, res: Respo
     } catch (error) {
         console.log(error);
 
-        res.status(300).json({ message: "Please wait 10 seconds before making another requrest",ok:false })
+        res.status(300).json({ message: "Please wait 10 seconds before making another requrest", ok: false })
         return
     }
     try {
@@ -69,7 +69,7 @@ export const registerUser = async (req: Request<registerUserPayload>, res: Respo
         })
 
         if (userExists) {
-            res.json({ error: "User already exists",ok:false })
+            res.json({ error: "User already exists", ok: false })
             return
         }
 
@@ -86,16 +86,16 @@ export const registerUser = async (req: Request<registerUserPayload>, res: Respo
         })
 
         if (!user) {
-            res.json({ error: 500, message: "Failed to crease user",ok:false })
+            res.json({ error: 500, message: "Failed to crease user", ok: false })
             return
         }
 
         const { passwordHash, ...userData } = user
 
-        res.json({ status: 200, message: "Please continue login", user: userData,ok:true })
+        res.json({ status: 200, message: "Please continue login", user: userData, ok: true })
     } catch (error) {
         console.error(error);
-        res.json({ error: 500, message: "Failed to crease user",ok:false })
+        res.json({ error: 500, message: "Failed to crease user", ok: false })
         return
     }
 }
@@ -110,14 +110,14 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
         : req.socket.remoteAddress
 
     if (!ip) {
-        res.status(400).json({ message: "Invalid request",ok:false });
+        res.status(400).json({ message: "Invalid request", ok: false });
         return;
     }
     console.log(ip);
     try {
         await ratelimiterSignInSignUp.consume(ip);
     } catch (rateLimitError) {
-        res.status(429).json({ message: "Please wait 10 seconds before another request",ok:false });
+        res.status(429).json({ message: "Please wait 10 seconds before another request", ok: false });
         return
     }
 
@@ -139,7 +139,7 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
 
             if (!dbUser) {
                 res.status(401).json({
-                    message: "Invalid credentials",ok:false
+                    message: "Invalid credentials", ok: false
                 })
                 return;
             }
@@ -151,7 +151,7 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
         if (!user) {
             console.log('where are you failing bish');
 
-            res.json({ message: "failed to authenticate", staus: 401,ok:false })
+            res.json({ message: "failed to authenticate", staus: 401, ok: false })
             return
         }
         redisClient.setex(`user:${user.username}`, 60 * 60, JSON.stringify(user))
@@ -160,53 +160,53 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
         const isPasswordCorrect = await bcrypt.compare(password, user.passwordHash)
 
         if (!isPasswordCorrect) {
-            res.json({ message: "failed to authenticate", staus: 401,ok:false })
+            res.json({ message: "failed to authenticate", staus: 401, ok: false })
             return
         }
 
         function generateSixDigitNumber() {
             const buffer = crypto.randomBytes(4);
             const randomInt = buffer.readInt32BE();
-            let randomSixDigit = randomInt% 1000000;
-            if(randomSixDigit<0) randomSixDigit=randomSixDigit*-1
+            let randomSixDigit = randomInt % 1000000;
+            if (randomSixDigit < 0) randomSixDigit = randomSixDigit * -1
             return randomSixDigit;
-          }
+        }
 
-          function generateVerificationUUID(){
+        function generateVerificationUUID() {
             return crypto.randomUUID();
-          }
-          
-        try{
+        }
+
+        try {
             const otp = String(generateSixDigitNumber())
             const verificationID = generateVerificationUUID()
             const salt = await bcrypt.genSalt(12)
-            const hashedOTP = await bcrypt.hash(otp,salt)
+            const hashedOTP = await bcrypt.hash(otp, salt)
 
-            
-            await emailQueue.add('send-otp',{
-                email:user.email,
+
+            await emailQueue.add('send-otp', {
+                email: user.email,
                 otp,
             })
-            redisClient.setex(`verifyId:${verificationID}`,15*60,JSON.stringify({userID:user.id,otp:hashedOTP}))
+            redisClient.setex(`verifyId:${verificationID}`, 15 * 60, JSON.stringify({ userID: user.id, otp: hashedOTP }))
 
 
-        await  res.status(200).json({
-            verifyId:verificationID,
-            message: 'OTP sent successfully. Please verify to complete login.',ok:true,
-            email: user.email
-        });
-        
-        return;
-    }catch (error) {
-        console.error('Login Process Error:', error);
-         res.status(500).json({ message: 'An internal error occurred during login.' });
-        return
+            await res.status(200).json({
+                verifyId: verificationID,
+                message: 'OTP sent successfully. Please verify to complete login.', ok: true,
+                email: user.email
+            });
+
+            return;
+        } catch (error) {
+            console.error('Login Process Error:', error);
+            res.status(500).json({ message: 'An internal error occurred during login.' });
+            return
         }
 
     } catch (error) {
         console.error(error);
 
-        await res.status(401).json({ message: "failed to authenticate",ok:false })
+        await res.status(401).json({ message: "failed to authenticate", ok: false })
         return
     }
 
@@ -216,35 +216,51 @@ export const loginUser = async (req: Request<loginUserPayload>, res: Response) =
 
 export const verify = async (req: Request<{ id: string }>, res: Response) => {
     try {
-        const { id } =  req.params;
+        const { id } = req.params;
         const otpData = await redisClient.get(`verifyId:${id}`)
-        if(!otpData) {
+        if (!otpData) {
             throw new Error("Unauthorized access")
-        } 
+        }
         const data = JSON.parse(otpData);
 
-        const {otp} = req.body;
+        const { otp } = req.body;
 
-        const verifyOTP = await bcrypt.compare(otp,data.otp)
-        try{
+        const verifyOTP = await bcrypt.compare(otp, data.otp)
+        try {
             ratelimiterVerify.consume(`${id}`)
 
-        }catch(error){
-            res.status(500).json({message:"Please wait few moments before trying",ok:false})
+        } catch (error) {
+            res.status(500).json({ message: "Please wait few moments before trying", ok: false })
             return
         }
-        if(!verifyOTP){
+        if (!verifyOTP) {
 
-            res.status(401).json({message:"Failed to authenticate user",ok:false})
+            res.status(401).json({ message: "Failed to authenticate user", ok: false })
             return;
         }
-        
-        generateToken(res,data.userID)
-        
-        res.status(201).json({message:"Successfully logged in please continue",ok:true})
+
+        generateToken(res, data.userID)
+
+        res.status(201).json({ message: "Successfully logged in please continue", ok: true })
     } catch (error) {
         console.error(error);
-        res.status(500).json({error:"Unauthorized access",ok:false})
+        res.status(500).json({ error: "Unauthorized access", ok: false })
+        return;
+    }
+}
+
+export const logout = async (req: Request, res: Response) => {
+    try {
+        const access_token = await req.cookies.access_token;
+        const refresh_token = await req.cookies.refresh_token;
+
+        await res.clearCookie(access_token)
+        await res.clearCookie(refresh_token)
+
+        res.status(200).json({ message: "Logged out successfully" })
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Unauthorized access", ok: false })
         return;
     }
 }

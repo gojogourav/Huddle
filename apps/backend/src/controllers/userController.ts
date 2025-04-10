@@ -19,7 +19,7 @@ export const fetchCurrUserProfile = async (
         name: true,
         email: true,
         username: true,
-
+        posts:true,
       }
     });
 
@@ -105,84 +105,8 @@ export const fetchFollowingPost = async (req: AuthenticationRequest, res: Respon
   }
 }
 
-export const PostPosts = async (req: AuthenticationRequest, res: Response) => {
-  try {
-    const currentUserId = req.user?.id
-    if (!currentUserId) {
-      res.status(401).json({ message: 'Not authorized' });
-      return;
-    }
-    const { text, image, userTag, location } = await req.body
-    if (!image) {
-      return res.status(400).json({ success: false, message: 'Image URL is required.' });
-    }
-    const filteredUserTags = userTag.filter((id: string) => id !== currentUserId);
-    const taggedUsers = filteredUserTags.map((id: string) => ({ id }))
-    const post = await prisma.post.create({
-      data: {
-        userId: currentUserId,
-        url: image,
-        text,
-        location: location,
-        tag: {
-          connect: taggedUsers
-        },
-      }
-    }
-    )
-    res.status(201).json(post);
-    return;
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Something went wrong' });
-
-  }
-}
-
-export const fetchSinglePost = async (req: Request, res: Response): Promise<void> => { // Can use standard Request if auth not strictly needed, or AuthenticationRequest if needed
-  try {
-    const postId = req.params.id;
-    if (!postId) {
-      res.status(400).json({ success: false, message: "Post ID is required." });
-      return;
-    }
-
-    const post = await prisma.post.findUnique({
-      where: { id: postId },
-      include: {
-        user: { select: { id: true, username: true, name: true } },
-        comments: {
-          orderBy: { createdAt: 'asc' },
-          include: {
-            user: { select: { id: true, username: true, name: true } } // Author of comment
-          }
-        },
-        likes: {
-          select: { userId: true }
-        },
-        tag: {
-          select: { id: true, username: true }
-        },
-        _count: {
-          select: { likes: true, comments: true }
-        }
-      }
-    });
-
-    if (!post) {
-      res.status(404).json({ success: false, message: "Post not found" });
-      return;
-    }
-
-    res.status(200).json({ success: true, data: post });
-
-  } catch (error) {
-    console.error("Error fetching single post:", error);
-    res.status(500).json({ success: false, message: "Internal server error while fetching post" });
-  }
-};
-
-export const fetchGlobalUserProfile = async (req: Request<{ identifier: string }>, res: Response): Promise<void> => {
+export const fetchGlobalUserProfile = async (req: AuthenticationRequest<{ identifier: string }>, res: Response): Promise<void> => {
+  
   try {
     const { identifier } = req.params;
     if (!identifier) {
@@ -211,15 +135,7 @@ export const fetchGlobalUserProfile = async (req: Request<{ identifier: string }
         }
       }
     });
-    const isFollowing = await prisma.userFollows.findFirst({
-      where: {
-        followerId: "",
-
-        followingId: userProfile?.id
-
-      },
-
-    })
+    
     if (!userProfile) {
       res.status(404).json({ success: false, message: "User not found" });
       return;
@@ -228,7 +144,6 @@ export const fetchGlobalUserProfile = async (req: Request<{ identifier: string }
       success: true,
       data: {
         ...userProfile,
-        isFollowing: isFollowing // Include follow status if calculated
       }
     });
 
@@ -265,12 +180,12 @@ export const updateProfile = async (req: AuthenticationRequest, res: Response) =
         email: true
       }
     })
-    if (!updateProfile) {
+    if (!updatedProfile) {
       res.status(500).json({ message: "Failed to update userProfile", status: 500 })
       console.error("Failed to update user profile");
     }
     res.status(200).json({
-
+      updateProfile
     })
   } catch (error) {
     console.error("Error fetching single post:", error);
@@ -402,206 +317,29 @@ export const followToggle = async (req: AuthenticationRequest, res: Response) =>
 
   }
 }
-export const deletePost = async (req: AuthenticationRequest, res: Response) => {
-  const currentUserId = req.user?.id
-  const { postId } = await req.params
-  try {
-    if (!currentUserId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
-    }
-    if (!postId) {
-      res.status(400).json({ success: false, message: "Post ID parameter is required." });
-      return;
-    }
 
-    const deleteResult = await prisma.post.deleteMany({
-      where: {
-        id: postId,
-        userId: currentUserId,
-      },
-    });
-    if (deleteResult.count === 0) {
-      const postExists = await prisma.post.findUnique({ where: { id: postId }, select: { id: true } });
-      if (postExists) {
-        console.log(`User ${currentUserId} attempted to delete post ${postId} owned by another user.`);
-        res.status(403).json({ success: false, message: "Forbidden: You are not authorized to delete this post." });
-      } else {
-        res.status(404).json({ success: false, message: "Post not found." });
+export const isFollowing = async (req:AuthenticationRequest<{identifier:string}>,res:Response):Promise<void>=>{
+  try{
+    const userId = req.user?.id
+    if (!userId) {
+      res.status(400).json({ success: false, message: "not authenticated." });
+      return;
+    }
+    const followingId = req.params.identifier
+    const isFollowing = await prisma.userFollows.findFirst({
+      where:{
+        followerId:userId,
+        followingId:followingId
       }
-      return;
-    }
-
-
-    console.log(`User ${currentUserId} successfully deleted post ${postId}`);
-    res.status(204).send();
-
-  } catch (error) {
-    console.error(`Error deleting post ${postId} for user ${currentUserId}:`, error);
-
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error while deleting post."
-    });
-
-  }
-}
-export const createComment = async (req: AuthenticationRequest, res: Response) => {
-  const currentUserId = req.user?.id
-
-  try {
-
-    const { text, postId } = req.body
-
-    if (!currentUserId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
-    }
-    const createdComment = await prisma.comment.create({
-      data: {
-        userId: currentUserId,
-        text,
-        postId
-      },
-      select: {
-        text: text,
-        user: {
-          select: {
-            username: true,
-            name: true,
-          }
-        },
-        postId: true
-      }
-    })
-    if (!createdComment) {
-      res.status(500).json({ message: "Failed to create comment" })
+    }) 
+    if(isFollowing){
+      res.status(200).json({isFollowing:true,success:true})
       return
     }
-    res.status(201).json(createdComment);
-    return
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Internal server error while deleting post."
-    });
-    return
+    else{res.status(200).json({isFollowing:false,success:true})}
+  }catch(error){
+     console.error("Error fetching isFollowing ", error);
+    res.status(500).json({ success: false, message: "Internal server error while fetching post" });
   }
 }
 
-
-
-
-export const deleteComment = async (req: AuthenticationRequest, res: Response): Promise<void> => {
-  const currentUserId = req.user?.id;
-  const { commentId } = req.params;
-
-
-  if (!currentUserId) {
-    res.status(401).json({ success: false, message: "Not authenticated" });
-    return;
-  }
-  if (!commentId) {
-    res.status(400).json({ success: false, message: "Comment ID parameter is required." });
-    return;
-  }
-
-  try {
-
-    const deleteResult = await prisma.comment.deleteMany({
-      where: {
-        id: commentId,
-        userId: currentUserId,
-      },
-    });
-
-
-    if (deleteResult.count === 0) {
-
-      const commentExists = await prisma.comment.findUnique({ where: { id: commentId }, select: { id: true } });
-      if (commentExists) {
-        console.log(`User ${currentUserId} attempted to delete comment ${commentId} owned by another user.`);
-        res.status(403).json({ success: false, message: "Forbidden: You are not authorized to delete this comment." });
-      } else {
-
-        res.status(404).json({ success: false, message: "Comment not found." });
-      }
-      return;
-    }
-
-
-    console.log(`User ${currentUserId} successfully deleted comment ${commentId}`);
-
-    res.status(204).send();
-
-  } catch (error: any) {
-    console.error(`Error deleting comment ${commentId} for user ${currentUserId}:`, error);
-    if (error.code === 'P2025') {
-      res.status(404).json({ success: false, message: "Comment not found or authorization failed." });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: "Internal server error while deleting comment."
-      });
-    }
-  }
-};
-
-
-export const unlikePost = async (req: AuthenticationRequest, res: Response): Promise<void> => {
-    const currentUserId = req.user?.id;
-    const { postId } = req.params;
-if (!currentUserId) {
-      res.status(401).json({ success: false, message: "Not authenticated" });
-      return;
-    }
-    if (!postId) {
-      res.status(404).json({message:"PostId wasn't provided"})
-    }
-
-    try {
-        const isPostalreadyLiked = await prisma.like.findFirst({
-            where: {
-                postId: postId,
-                userId: currentUserId,
-            },
-        });
-
-        let action :'Liked Post' | 'Unliked Post';
-        if (!isPostalreadyLiked) {
-            const like = await prisma.like.create({
-              data:{
-                postId,
-                userId:currentUserId
-              }
-            })
-             action = 'Liked Post';
-
-            res.status(200).json({post:postId,user:currentUserId,action})
-            return;
-        }else{
-          const unlikePost = await prisma.like.delete({
-            where:{
-              id:isPostalreadyLiked.id,
-              postId,
-              userId:currentUserId
-            }
-          })
-          action='Unliked Post'
-          if(!unlikePost){
-            res.status(500).json({message:"Failed to unlike post"})
-            return
-          }
-          res.status(200).json({postId,user:currentUserId,action})
-          return
-        }
-
-    } catch (error) {
-        console.error(`Error unliking post ${postId} for user ${currentUserId}:`, error);
-        res.status(500).json({
-            success: false,
-            message: "Internal server error while unliking post."
-        });
-    }
-};

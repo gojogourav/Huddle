@@ -3,18 +3,20 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/utils";
 
 
-export const PostPosts = async (req: AuthenticationRequest, res: Response) => {
+export const PostPosts = async (req: AuthenticationRequest, res: Response): Promise<void> => {
   try {
     const currentUserId = req.user?.id
     if (!currentUserId) {
       res.status(401).json({ message: 'Not authorized' });
       return;
     }
-    const { text, image, userTag, location } = await req.body
+    const { text, image, userTag, location } =  req.body
     if (!image) {
-      return res.status(400).json({ success: false, message: 'Image URL is required.' });
+      res.status(400).json({ success: false, message: 'Image URL is required.' });
+      return
     }
-    const filteredUserTags = userTag.filter((id: string) => id !== currentUserId);
+    const tags = userTag
+    const filteredUserTags = tags.filter((id: string) => id !== currentUserId);
     const taggedUsers = filteredUserTags.map((id: string) => ({ id }))
     const post = await prisma.post.create({
       data: {
@@ -32,8 +34,8 @@ export const PostPosts = async (req: AuthenticationRequest, res: Response) => {
     return;
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: 'Something went wrong' });
-
+    res.status(500).json({ message: 'Something went wrong' });
+    return
   }
 }
 
