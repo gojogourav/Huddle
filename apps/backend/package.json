@@ -20,6 +20,7 @@
   "devDependencies": {
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.1",
+    "@types/google.maps": "^3.58.1",
     "@types/jsonwebtoken": "^9.0.9",
     "prisma": "^6.5.0",
     "tsconfig-paths": "^4.2.0",

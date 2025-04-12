@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/utils";
 
 
-export const createComment = async (req: AuthenticationRequest, res: Response) => {
+export const createComment = async (req: AuthenticationRequest<{postId:string}>, res: Response) => {
   const currentUserId = req.user?.id
 
   try {
@@ -49,7 +49,7 @@ export const createComment = async (req: AuthenticationRequest, res: Response) =
 
 
 
-export const deleteComment = async (req: AuthenticationRequest, res: Response): Promise<void> => {
+export const deleteComment = async (req: AuthenticationRequest<{commentId:string}>, res: Response): Promise<void> => {
   const currentUserId = req.user?.id;
   const { commentId } = req.params;
 
