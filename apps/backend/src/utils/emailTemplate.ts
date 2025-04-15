@@ -170,7 +170,6 @@ export const sendResendEmail = async (otp: string, email: string,res:Response)=>
 
         }
         try{
-
             ratelimiterEmail.consume(email)
         }catch(err){
             res.status(500).json({message:"please wait few moments before continuing"})

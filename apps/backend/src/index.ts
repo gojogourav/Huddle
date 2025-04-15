@@ -6,6 +6,7 @@ import likeRoutes from './routes/LikeRoutes'
 import CommentRoutes from './routes/CommentRoutes'
 import postRoutes from './routes/postRoutes'
 import { Server, Socket } from 'socket.io';
+import utilsRoutes from './routes/utilsRoutes'; 
 const app = express()
 import http from 'http'
 import cors from 'cors'
@@ -23,7 +24,6 @@ const io = new Server(server,{
         credentials:true
     }
 })
-
 io.on('connection',(socket:Socket)=>{
     console.log(`Soket Successfully connected :${socket.id} `);
     const usreId = socket.data.user?.id
@@ -72,14 +72,17 @@ io.on('connection',(socket:Socket)=>{
 })
 
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser())
 app.use('/api/auth', authRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/like',likeRoutes)
 app.use('/api/comment',CommentRoutes)
 app.use('/api/post',postRoutes)
+app.use('/api/utils', utilsRoutes);
+
 server.listen(PORT, () => {
+
     console.log(`Server running at http://localhost:${PORT}`);
     console.log('Socket.IO server initialized and listening.');
 

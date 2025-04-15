@@ -10,7 +10,8 @@ const nextConfig = {
         'flowbite.s3.amazonaws.com',
         'via.placeholder.com',
         'assets.aceternity.com',
-        'media.istockphoto.com'
+        'media.istockphoto.com',
+        'ik.imagekit.io'
     ]
   },
   // Add the rewrites configuration for proxying

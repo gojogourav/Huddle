@@ -1,76 +1,101 @@
-import jwt from 'jsonwebtoken'
-import { Request, Response } from 'express'
-import bcrypt from 'bcryptjs'
-import { prisma, ratelimiterVerify } from '../utils/utils'
-import { Resend } from 'resend'
-import { redisClient } from '../config/redisConnection'
-import crypto from 'crypto'
-import { ratelimiterSignInSignUp } from '../utils/utils'
-import { emailQueue } from '../utils/queues/emailQueue'
-interface registerUserPayload {
-    name: string,
-    email: string,
-    username: string,
-    password: string
-}
-interface loginUserPayload {
-    identifier: string,
-    password: string
+import jwt from 'jsonwebtoken';
+import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import { prisma, ratelimiterVerify, ratelimiterSignInSignUp } from '../utils/utils';
+import { redisClient } from '../config/redisConnection';
+import crypto from 'crypto';
+import { emailQueue } from '../utils/queues/emailQueue';
+
+// --- Interfaces ---
+interface RegisterUserPayload {
+    name: string;
+    email: string;
+    username: string;
+    password: string;
 }
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-
-// const prisma = new PrismaClient()
-
-const generateToken = (res: Response, id: string) => {
-    const access_token = jwt.sign({ id }, process.env.JWT_SECRET as string, { expiresIn: '1h' })
-    const refresh_token = jwt.sign({ id }, process.env.JWT_SECRET as string, { expiresIn: '7d' })
-    res.cookie('access_token', access_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: 60 * 60 * 1000,
-        sameSite: 'strict'
-    })
-    res.cookie('refresh_token', refresh_token, {
-        httpOnly: true,
-        secure: true,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: 'strict'
-    })
+interface LoginUserPayload {
+    identifier: string; // email or username
+    password: string;
 }
 
-export const registerUser = async (req: Request<registerUserPayload>, res: Response): Promise<void> => {
-    const { email, username, password, name } = await req.body;
+interface VerifyPayload {
+    otp: string;
+}
+
+interface VerificationData {
+    userId: string;
+    otpHash: string;
+    type: 'registration' | 'login';
+}
+
+// --- Helper Functions ---
+
+const generateToken = (res: Response, userId: string): void => {
     try {
-        const forwardedFor = req.headers['x-forwarded-for']
-
-        const ip = typeof forwardedFor === 'string'
-            ? forwardedFor.split(',').shift()
-            : req.socket.remoteAddress
-
-        if (!ip) {
-            throw new Error("Failed to get ip")
-        }
-        console.log(ip);
-
-        await ratelimiterSignInSignUp.consume(ip)
+        const access_token = jwt.sign({ id: userId }, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+        const refresh_token = jwt.sign({ id: userId }, process.env.JWT_SECRET as string, { expiresIn: '7d' });
+        const cookieOptions = {
+            httpOnly: true,
+            secure: process.env.NODE_ENV !== 'development',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            sameSite: 'strict' as const,
+            path: '/',
+        };
+        res.cookie('access_token', access_token, { ...cookieOptions, maxAge: 60 * 60 * 1000 });
+        res.cookie('refresh_token', refresh_token, cookieOptions);
     } catch (error) {
-        console.log(error);
-
-        res.status(300).json({ message: "Please wait 10 seconds before making another requrest", ok: false })
-        return
+        console.error("Error generating tokens:", error);
+        throw new Error("Failed to generate authentication tokens.");
     }
+};
+
+function generateSixDigitNumber(): string {
+    return crypto.randomInt(100000, 1000000).toString();
+}
+
+function generateVerificationUUID(): string {
+    return crypto.randomUUID();
+}
+
+// --- Route Handlers ---
+
+export const registerUser = async (req: Request<{}, {}, RegisterUserPayload>, res: Response): Promise<void> => {
+    const { email, username, password, name } = req.body;
+    const lowerCaseEmail = email.toLowerCase();
+    const lowerCaseUsername = username.toLowerCase();
+
+    if (!email || !username || !password || !name) {
+        res.status(400).json({ message: "All fields are required", ok: false });
+        return;
+    }
+
+    let ip: string | undefined;
     try {
+        const forwardedFor = req.headers['x-forwarded-for'];
+        ip = typeof forwardedFor === 'string' ? forwardedFor.split(',').shift()?.trim() : req.socket.remoteAddress;
+        if (!ip) throw new Error("Could not determine IP address");
+        await ratelimiterSignInSignUp.consume(ip);
+    } catch (rateLimitError: any) {
+        const retryAfter = rateLimitError?.msBeforeNext ? Math.ceil(rateLimitError.msBeforeNext / 1000) : 10;
+        res.status(429).json({ message: `Too many attempts. Please wait ${retryAfter} seconds.`, ok: false });
+        return;
+    }
 
-        const userExists = await prisma.user.findFirst({
-            where: {
-                OR: [{ username }, { email }]
-            }
-        })
+    try {
+        const existingUser = await prisma.user.findFirst({
+            where: { OR: [{ username: lowerCaseUsername }, { email: lowerCaseEmail }] },
+            select: { id: true, isVerified: true }
+        });
 
-        if (userExists) {
-            res.json({ error: "User already exists", ok: false })
-            return
+        if (existingUser?.isVerified) {
+            res.status(409).json({ message: "User already exists and is verified.", ok: false });
+            return;
+        }
+        if (existingUser && !existingUser.isVerified) {
+             // Decide how to handle existing unverified: error out, delete, or allow re-verification
+             res.status(409).json({ message: "An unverified account exists. Please check your email or contact support.", ok: false });
+             return;
         }
 
         const salt = await bcrypt.genSalt(12);
@@ -78,189 +103,283 @@ export const registerUser = async (req: Request<registerUserPayload>, res: Respo
 
         const user = await prisma.user.create({
             data: {
-                username,
-                email,
+                username: lowerCaseUsername,
+                email: lowerCaseEmail,
                 passwordHash: newHashedPassword,
-                name
+                name,
+                isVerified: false
             }
-        })
-
-        if (!user) {
-            res.json({ error: 500, message: "Failed to crease user", ok: false })
-            return
-        }
-
-        const { passwordHash, ...userData } = user
-
-        res.json({ status: 200, message: "Please continue login", user: userData, ok: true })
-    } catch (error) {
-        console.error(error);
-        res.json({ error: 500, message: "Failed to crease user", ok: false })
-        return
-    }
-}
-
-export const loginUser = async (req: Request<loginUserPayload>, res: Response) => {
-    const { identifier, password } = req.body;
-
-    const forwardedFor = req.headers['x-forwarded-for']
-
-    const ip = typeof forwardedFor === 'string'
-        ? forwardedFor.split(',').shift()
-        : req.socket.remoteAddress
-
-    if (!ip) {
-        res.status(400).json({ message: "Invalid request", ok: false });
-        return;
-    }
-    console.log(ip);
-    try {
-        await ratelimiterSignInSignUp.consume(ip);
-    } catch (rateLimitError) {
-        res.status(429).json({ message: "Please wait 10 seconds before another request", ok: false });
-        return
-    }
-
-    try {
-        const cacheKey = `user:${identifier}`
-        const userCache = await redisClient.get(cacheKey)
-        let user = userCache ? JSON.parse(userCache) : null;
-
-        if (!user) {
-            const dbUser = userCache ? JSON.parse(userCache) : await prisma.user.findFirst({
-                where: {
-                    OR: [
-                        { username: identifier },
-                        { email: identifier }
-                    ]
-                },
-                select: { id: true, name: true, passwordHash: true, email: true }
-            })
-
-            if (!dbUser) {
-                res.status(401).json({
-                    message: "Invalid credentials", ok: false
-                })
-                return;
-            }
-
-            await redisClient.setex(cacheKey, 60 * 60, JSON.stringify(dbUser))
-            user = dbUser;
-        }
-
-        if (!user) {
-            console.log('where are you failing bish');
-
-            res.json({ message: "failed to authenticate", staus: 401, ok: false })
-            return
-        }
-        redisClient.setex(`user:${user.username}`, 60 * 60, JSON.stringify(user))
-        console.log(`user beffore checking is password correct - ${user.passwordHash}`);
-
-        const isPasswordCorrect = await bcrypt.compare(password, user.passwordHash)
-
-        if (!isPasswordCorrect) {
-            res.json({ message: "failed to authenticate", staus: 401, ok: false })
-            return
-        }
-
-        function generateSixDigitNumber() {
-            const buffer = crypto.randomBytes(4);
-            const randomInt = buffer.readInt32BE();
-            let randomSixDigit = randomInt % 1000000;
-            if (randomSixDigit < 0) randomSixDigit = randomSixDigit * -1
-            return randomSixDigit;
-        }
-
-        function generateVerificationUUID() {
-            return crypto.randomUUID();
-        }
+        });
 
         try {
-            const otp = String(generateSixDigitNumber())
-            const verificationID = generateVerificationUUID()
-            const salt = await bcrypt.genSalt(12)
-            const hashedOTP = await bcrypt.hash(otp, salt)
+            const otp = generateSixDigitNumber();
+            const verificationId = generateVerificationUUID();
+            const otpSalt = await bcrypt.genSalt(10);
+            const hashedOTP = await bcrypt.hash(otp, otpSalt);
+            const redisKey = `verify:${verificationId}`;
+            const verificationData: VerificationData = { userId: user.id, otpHash: hashedOTP, type: 'registration' };
 
+            await redisClient.setex(redisKey, 15 * 60, JSON.stringify(verificationData)); // 15 min expiry
+            await emailQueue.add('send-registration-otp', { email: user.email, otp: otp, name: user.name || user.username });
 
-            await emailQueue.add('send-otp', {
-                email: user.email,
-                otp,
-            })
-            redisClient.setex(`verifyId:${verificationID}`, 15 * 60, JSON.stringify({ userID: user.id, otp: hashedOTP }))
-
-
-            await res.status(200).json({
-                verifyId: verificationID,
-                message: 'OTP sent successfully. Please verify to complete login.', ok: true,
-                email: user.email
+            res.status(201).json({
+                message: 'Registration successful! Please verify your email with the OTP sent.',
+                verificationId: verificationId,
+                ok: true,
             });
-
-            return;
-        } catch (error) {
-            console.error('Login Process Error:', error);
-            res.status(500).json({ message: 'An internal error occurred during login.' });
-            return
+        } catch (otpError) {
+            console.error(`OTP process failed for user ${user.id}:`, otpError);
+            res.status(500).json({ message: 'Registration succeeded, but failed to send verification email.', ok: false });
         }
 
-    } catch (error) {
-        console.error(error);
+    } catch (error: any) {
+        console.error("Registration Error:", error);
+        if (error?.code === 'P2002') {
+             res.status(409).json({ message: "Username or email already taken.", ok: false });
+        } else {
+            res.status(500).json({ message: "Failed to register user.", ok: false });
+        }
+    }
+};
 
-        await res.status(401).json({ message: "failed to authenticate", ok: false })
-        return
+
+export const loginUser = async (req: Request<{}, {}, LoginUserPayload>, res: Response): Promise<void> => {
+    const { identifier, password } = req.body;
+    const lowerCaseIdentifier = identifier.toLowerCase();
+
+    if (!identifier || !password) {
+        res.status(400).json({ message: "Identifier and password are required", ok: false });
+        return;
     }
 
-}
-
-
-
-export const verify = async (req: Request<{ id: string }>, res: Response) => {
+    let ip: string | undefined;
     try {
-        const { id } = req.params;
-        const otpData = await redisClient.get(`verifyId:${id}`)
-        if (!otpData) {
-            throw new Error("Unauthorized access")
-        }
-        const data = JSON.parse(otpData);
+        const forwardedFor = req.headers['x-forwarded-for'];
+        ip = typeof forwardedFor === 'string' ? forwardedFor.split(',').shift()?.trim() : req.socket.remoteAddress;
+        if (!ip) throw new Error("Could not determine IP address");
+        await ratelimiterSignInSignUp.consume(ip);
+    } catch (rateLimitError: any) {
+        const retryAfter = rateLimitError?.msBeforeNext ? Math.ceil(rateLimitError.msBeforeNext / 1000) : 10;
+        res.status(429).json({ message: `Too many attempts. Please wait ${retryAfter} seconds.`, ok: false });
+        return;
+    }
 
-        const { otp } = req.body;
-
-        const verifyOTP = await bcrypt.compare(otp, data.otp)
+    try {
+        const cacheKey = `user:${lowerCaseIdentifier}`;
+        let user: any = null; // Define type more specifically if possible
         try {
-            ratelimiterVerify.consume(`${id}`)
+            const userCache = await redisClient.get(cacheKey);
+            if (userCache) user = JSON.parse(userCache);
+        } catch (redisError) { console.error("Redis GET error:", redisError); }
 
-        } catch (error) {
-            res.status(500).json({ message: "Please wait few moments before trying", ok: false })
-            return
+        if (!user) {
+            user = await prisma.user.findFirst({
+                where: { OR: [{ username: lowerCaseIdentifier }, { email: lowerCaseIdentifier }] },
+                select: { id: true, name: true, passwordHash: true, email: true, username: true, isVerified: true }
+            });
+            if (user) {
+                try {
+                    await redisClient.setex(cacheKey, 3600, JSON.stringify(user));
+                    if (user.email === lowerCaseIdentifier && user.username !== lowerCaseIdentifier) {
+                         await redisClient.setex(`user:${user.username}`, 3600, JSON.stringify(user));
+                     }
+                } catch (redisError) { console.error("Redis SETEX error:", redisError); }
+            }
         }
-        if (!verifyOTP) {
 
-            res.status(401).json({ message: "Failed to authenticate user", ok: false })
+        if (!user || !user.passwordHash) {
+            res.status(401).json({ message: "Invalid credentials.", ok: false });
             return;
         }
 
-        generateToken(res, data.userID)
+        if (!user.isVerified) {
+             res.status(403).json({
+                 message: "Account not verified. Please check your email.",
+                 ok: false,
+                 needsVerification: true
+             });
+             return;
+        }
 
-        res.status(201).json({ message: "Successfully logged in please continue", ok: true })
+        const isPasswordCorrect = await bcrypt.compare(password, user.passwordHash);
+        if (!isPasswordCorrect) {
+            res.status(401).json({ message: "Invalid credentials.", ok: false });
+            return;
+        }
+
+        try {
+            const otp = generateSixDigitNumber();
+            const verificationId = generateVerificationUUID();
+            const salt = await bcrypt.genSalt(10);
+            const hashedOTP = await bcrypt.hash(otp, salt);
+            const redisKey = `verify:${verificationId}`;
+            const verificationData: VerificationData = { userId: user.id, otpHash: hashedOTP, type: 'login' };
+
+            await redisClient.setex(redisKey, 5 * 60, JSON.stringify(verificationData)); // 5 min expiry
+            await emailQueue.add('send-login-otp', { email: user.email, otp: otp });
+
+            res.status(200).json({
+                message: 'Credentials valid. OTP sent to complete login.',
+                verificationId: verificationId,
+                ok: true,
+                needsOtp: true
+            });
+        } catch (otpError) {
+            console.error(`Login OTP failed for user ${user.id}:`, otpError);
+            res.status(500).json({ message: 'Failed to send login OTP.', ok: false });
+        }
+
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Unauthorized access", ok: false })
+        console.error("Login Error:", error);
+        res.status(500).json({ message: "An unexpected error occurred during login.", ok: false });
+    }
+};
+
+
+export const verifyRegistration = async (req: Request<{ id: string }, {}, VerifyPayload>, res: Response): Promise<void> => {
+    const { id: verificationId } = req.params;
+    const { otp } = req.body;
+
+    if (!verificationId || !otp) {
+        res.status(400).json({ message: "Verification ID and OTP required.", ok: false });
         return;
     }
-}
 
-export const logout = async (req: Request, res: Response) => {
+    const redisKey = `verify:${verificationId}`;
     try {
-        const access_token = await req.cookies.access_token;
-        const refresh_token = await req.cookies.refresh_token;
-
-        await res.clearCookie(access_token)
-        await res.clearCookie(refresh_token)
-
-        res.status(200).json({ message: "Logged out successfully" })
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Unauthorized access", ok: false })
+        await ratelimiterVerify.consume(verificationId);
+    } catch (rateLimitError: any) {
+        const retryAfter = rateLimitError?.msBeforeNext ? Math.ceil(rateLimitError.msBeforeNext / 1000) : 5;
+        res.status(429).json({ message: `Too many attempts. Wait ${retryAfter} seconds.`, ok: false });
         return;
     }
-}
+
+    try {
+        const verificationDataString = await redisClient.get(redisKey);
+        if (!verificationDataString) {
+            res.status(404).json({ message: "Verification request not found or expired.", ok: false });
+            return;
+        }
+
+        const verificationData: VerificationData = JSON.parse(verificationDataString);
+        if (verificationData.type !== 'registration') {
+            res.status(400).json({ message: "Invalid verification type.", ok: false });
+            return;
+        }
+        if (!verificationData.userId || !verificationData.otpHash) throw new Error("Corrupted verification data");
+
+        const isOtpValid = await bcrypt.compare(otp, verificationData.otpHash);
+        if (!isOtpValid) {
+            res.status(400).json({ message: "Invalid OTP.", ok: false });
+            return;
+        }
+
+        await prisma.user.update({
+            where: { id: verificationData.userId },
+            data: { isVerified: true },
+        });
+
+        await redisClient.del(redisKey).catch(err => console.error("Failed to delete redis key:", err));
+
+        res.status(200).json({ message: "Email verified successfully. You can now log in.", ok: true });
+
+    } catch (error: any) {
+        console.error("Registration Verification Error:", error);
+        if (error instanceof SyntaxError || error.message === "Corrupted verification data") {
+             res.status(500).json({ message: "Verification data error.", ok: false });
+        } else if (error.code === 'P2025') { // Prisma record not found during update
+            res.status(404).json({ message: "User associated with verification not found.", ok: false });
+        }
+         else {
+             res.status(500).json({ message: "Verification failed.", ok: false });
+        }
+    }
+};
+
+
+export const verifyLogin = async (req: Request<{ id: string }, {}, VerifyPayload>, res: Response): Promise<void> => {
+    const { id: verificationId } = req.params;
+    const { otp } = req.body;
+
+     if (!verificationId || !otp) {
+        res.status(400).json({ message: "Verification ID and OTP required.", ok: false });
+        return;
+    }
+
+    const redisKey = `verify:${verificationId}`;
+    try {
+        await ratelimiterVerify.consume(verificationId);
+    } catch (rateLimitError: any) {
+        const retryAfter = rateLimitError?.msBeforeNext ? Math.ceil(rateLimitError.msBeforeNext / 1000) : 5;
+        res.status(429).json({ message: `Too many attempts. Wait ${retryAfter} seconds.`, ok: false });
+        return;
+    }
+
+    try {
+        const verificationDataString = await redisClient.get(redisKey);
+        if (!verificationDataString) {
+            res.status(404).json({ message: "Login verification request not found or expired.", ok: false });
+            return;
+        }
+
+        const verificationData: VerificationData = JSON.parse(verificationDataString);
+         if (verificationData.type !== 'login') {
+             res.status(400).json({ message: "Invalid verification type for login.", ok: false });
+             return;
+         }
+        if (!verificationData.userId || !verificationData.otpHash) throw new Error("Corrupted verification data");
+
+        const isOtpValid = await bcrypt.compare(otp, verificationData.otpHash);
+        if (!isOtpValid) {
+            res.status(400).json({ message: "Invalid OTP.", ok: false });
+            return;
+        }
+
+        generateToken(res, verificationData.userId);
+        await redisClient.del(redisKey).catch(err => console.error("Failed to delete redis key:", err));
+
+        res.status(200).json({ message: "Login successful.", ok: true });
+
+    } catch (error: any) {
+        console.error("Login Verification Error:", error);
+         if (error instanceof SyntaxError || error.message === "Corrupted verification data") {
+             res.status(500).json({ message: "Verification data error.", ok: false });
+        } else {
+             res.status(500).json({ message: "Login verification failed.", ok: false });
+        }
+    }
+};
+
+
+export const logout = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const cookieOptions = {
+            httpOnly: true,
+            secure: process.env.NODE_ENV !== 'development',
+            sameSite: 'strict' as const,
+            path: '/',
+        };
+        res.clearCookie('access_token', cookieOptions);
+        res.clearCookie('refresh_token', cookieOptions);
+        res.status(200).json({ message: "Logged out successfully", ok: true });
+    } catch (error) {
+        console.error("Logout Error:", error);
+        res.status(500).json({ message: "Logout failed.", ok: false });
+    }
+};
+
+
+
+export const cleanupUnverifiedUsers = async () => {
+    const EXPIRY_HOURS = 24;
+    const thresholdDate = new Date(Date.now() - EXPIRY_HOURS * 60 * 60 * 1000);
+    console.log(`Cleanup: Deleting unverified users created before ${thresholdDate.toISOString()}`);
+    try {
+        const { count } = await prisma.user.deleteMany({
+            where: { isVerified: false, createdAt: { lt: thresholdDate } }
+        });
+        console.log(`Cleanup successful: Deleted ${count} unverified users.`);
+    } catch (error) {
+        console.error("Error during unverified user cleanup:", error);
+    }
+};

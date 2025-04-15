@@ -1,4 +1,4 @@
-import { AuthenticationRequest } from "@/middlewares/authMiddleware";
+import { AuthenticationRequest } from "../middlewares/authMiddleware";
 import { Request, Response } from "express";
 import { prisma } from "../utils/utils";
 
@@ -49,8 +49,6 @@ export const fetchFollowingPost = async (req: AuthenticationRequest, res: Respon
       res.status(401).json({ message: 'Not authorized' });
       return;
     }
-
-
 
     const followingRelatins = await prisma.userFollows.findMany({
       orderBy: { createdAt: 'desc' },
@@ -144,6 +142,49 @@ export const fetchGlobalUserProfile = async (req: AuthenticationRequest<{ identi
       success: true,
       data: {
         ...userProfile,
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching single post:", error);
+    res.status(500).json({ success: false, message: "Internal server error while fetching post" });
+  }
+
+}
+export const fetchUserPosts = async (req: AuthenticationRequest<{ identifier: string }>, res: Response): Promise<void> => {
+  try {
+    const { identifier } = req.params;
+    if (!identifier) {
+      res.status(400).json({ success: false, message: "Username or User ID is required." });
+      return;
+    }
+    const posts = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: identifier },
+          { id: identifier }
+        ]
+      },
+      
+      select: {
+        _count: {
+          select: {
+            posts: true,
+
+          }
+        },
+        posts:true
+      }
+    });
+    
+    if (!posts) {
+      res.status(404).json({ success: false, message: "User not found" });
+      return;
+    }
+    res.status(200).json({
+      success: true,
+      data: {
+        ...posts,
       }
     });
 
@@ -342,4 +383,73 @@ export const isFollowing = async (req:AuthenticationRequest<{identifier:string}>
     res.status(500).json({ success: false, message: "Internal server error while fetching post" });
   }
 }
+
+
+
+// src/controllers/userController.ts (or similar)
+// ... other imports ...
+
+
+// ... other user controller functions ...
+
+export const lookupUsersByUsername = async (req: AuthenticationRequest, res: Response): Promise<void> => {
+  if (!req.user?.id) {
+    res.status(401).json({ success: false, message: "Not authenticated" });
+    return;
+  }
+
+  const { usernames } = req.body as { usernames?: string[] };
+
+  if (!Array.isArray(usernames) || usernames.length === 0) {
+    res.status(400).json({ success: false, message: "Invalid input: 'usernames' array is required." });
+    return;
+  }
+
+  const cleanedUsernames = usernames.map(u => String(u).trim().toLowerCase()).filter(Boolean);
+
+  if (cleanedUsernames.length === 0) {
+     res.status(200).json({ success: true, ids: [], notFound: [] }); // Return empty if no valid input
+     return;
+  }
+
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        username: {
+          in: cleanedUsernames,
+        },
+      },
+      select: {
+        id: true,
+        username: true, // Return username to map back if needed
+      },
+    });
+
+    // Create a map for efficient lookup
+    const foundUserMap = new Map(users.map(u => [u.username.toLowerCase(), u.id]));
+    const foundIds: string[] = [];
+    const notFoundUsernames: string[] = [];
+
+    // Determine which usernames were found
+    cleanedUsernames.forEach(username => {
+        if (foundUserMap.has(username)) {
+            foundIds.push(foundUserMap.get(username)!);
+        } else {
+             // Add the *original* casing back if possible, otherwise lowercased
+            const originalUsername = usernames.find(u => u.trim().toLowerCase() === username) || username;
+            notFoundUsernames.push(originalUsername);
+        }
+    });
+
+    res.status(200).json({
+      success: true,
+      ids: foundIds,
+      notFound: notFoundUsernames,
+    });
+
+  } catch (error) {
+    console.error("Error looking up users by username:", error);
+    res.status(500).json({ success: false, message: "Internal server error during user lookup." });
+  }
+};
 

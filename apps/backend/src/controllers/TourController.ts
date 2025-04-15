@@ -1,4 +1,4 @@
-import { AuthenticationRequest } from "@/middlewares/authMiddleware";
+import { AuthenticationRequest } from "../middlewares/authMiddleware";
 import io from 'socket.io'
 
 
@@ -29,8 +29,6 @@ interface NearbyUsersResult {
     name:string|null;
     distance_meters:number
 }
-
-
 export const findNearbyUsers = async (req:AuthenticationRequest,res:Response):Promise<void>=>{
     try{
         const currentUserId = req.user?.id

@@ -14,7 +14,10 @@
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
+    "imagekit": "^6.0.0",
+    "install": "^0.13.0",
     "jsonwebtoken": "^9.0.2",
+    "npm": "^11.3.0",
     "ts-node-dev": "2.0.0"
   },
   "devDependencies": {
