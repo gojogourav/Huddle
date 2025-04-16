@@ -1,11 +1,14 @@
 'use client'
 import React from 'react'
-import { Home, Wand2, Compass, Users, User } from 'lucide-react'; 
+import { Home, Wand2, Compass, Users, PlusCircle,User } from 'lucide-react'; 
 import Link from 'next/link'; 
 import { usePathname } from 'next/navigation'; 
+import { useAuth } from '@/context/AuthContext';
 
 function Bottombar() {
     const path = usePathname();
+    const { currentUser, isLoading } = useAuth();
+
 
     if (path.includes('/register')||path.includes('/login')||path.includes('/signup')||path.includes('/dashboard')||path.includes('/verify/')) {
         return null; 
@@ -13,9 +16,9 @@ function Bottombar() {
     const navLinks = [
         { href: '/', icon: Home, label: 'Home' },
         { href: '/magic', icon: Wand2, label: 'Magic' },
+        { href: '/post', icon: PlusCircle, label: 'Friends' },
         { href: '/explore', icon: Compass, label: 'Explore' },
-        { href: '/friends', icon: Users, label: 'Friends' },
-        { href: '/profile', icon: User, label: 'Profile' },
+        { href: `/profile/${currentUser?.username}`, icon: User, label: 'Profile' },
     ];
 
     return (

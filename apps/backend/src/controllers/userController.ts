@@ -122,8 +122,10 @@ export const fetchGlobalUserProfile = async (req: AuthenticationRequest<{ identi
         id: true,
         username: true,
         name: true,
+        email: true,         // <-- Crucial: Select email
+        profilePic: true,    // <-- Crucial: Select profilePic
+        bio: true,           // <-- Crucial: Select bio
         createdAt: true,
-
         _count: {
           select: {
             posts: true,
@@ -398,53 +400,38 @@ export const lookupUsersByUsername = async (req: AuthenticationRequest, res: Res
     return;
   }
 
-  const { usernames } = req.body as { usernames?: string[] };
+  const { username } = req.body 
 
-  if (!Array.isArray(usernames) || usernames.length === 0) {
+  if (!username) {
     res.status(400).json({ success: false, message: "Invalid input: 'usernames' array is required." });
     return;
   }
 
-  const cleanedUsernames = usernames.map(u => String(u).trim().toLowerCase()).filter(Boolean);
 
-  if (cleanedUsernames.length === 0) {
-     res.status(200).json({ success: true, ids: [], notFound: [] }); // Return empty if no valid input
-     return;
-  }
 
   try {
     const users = await prisma.user.findMany({
       where: {
-        username: {
-          in: cleanedUsernames,
-        },
+        username
       },
       select: {
         id: true,
-        username: true, // Return username to map back if needed
+        profilePic:true,
+        username: true,
+        _count:{
+          select:{
+            followers:true,
+            following:true,
+          }
+        } // Return username to map back if needed
       },
     });
 
-    // Create a map for efficient lookup
-    const foundUserMap = new Map(users.map(u => [u.username.toLowerCase(), u.id]));
-    const foundIds: string[] = [];
-    const notFoundUsernames: string[] = [];
-
-    // Determine which usernames were found
-    cleanedUsernames.forEach(username => {
-        if (foundUserMap.has(username)) {
-            foundIds.push(foundUserMap.get(username)!);
-        } else {
-             // Add the *original* casing back if possible, otherwise lowercased
-            const originalUsername = usernames.find(u => u.trim().toLowerCase() === username) || username;
-            notFoundUsernames.push(originalUsername);
-        }
-    });
+   
 
     res.status(200).json({
       success: true,
-      ids: foundIds,
-      notFound: notFoundUsernames,
+      users
     });
 
   } catch (error) {

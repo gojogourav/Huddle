@@ -128,3 +128,67 @@ export const deletePost = async (req: AuthenticationRequest, res: Response) => {
   }
 }
 
+export const fetchExplorePosts = async (req: AuthenticationRequest, res: Response) => {
+  // Auth is optional here, req.user might be undefined if middleware allows unauthenticated access
+  const currentUserId = req.user?.id;
+
+  // Pagination
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 12; // Default limit (e.g., 12 for a 3/4 col grid)
+  const skip = (page - 1) * limit;
+
+  try {
+    
+    // Fetch Posts
+    const posts = await prisma.post.findMany({
+      orderBy: {
+        createdAt: 'desc', // Fetch most recent posts first
+
+      },
+      include: {
+        // Include data needed for the PostCard component
+        user: {
+          select: {
+            id: true,
+            username: true,
+            name: true,
+            profilePic: true, // Important for PostCard display
+          }
+        },
+        _count: {
+          select: { likes: true, comments: true }
+        },
+      },
+      take: limit,
+      skip,
+    });
+
+    // Fetch total count for pagination using the same filter
+
+    // Optional: Transform posts to add isLikedByCurrentUser boolean
+    const transformedPosts = posts.map(post => {
+        // Explicitly type post for safety, assuming 'likes' might be included
+        const typedPost = post as typeof post & { likes?: Array<{userId: string}> };
+        const { likes, ...restOfPost } = typedPost;
+        return {
+            ...restOfPost,
+             // Add boolean flag based on whether the likes array (filtered for current user) has items
+            isLikedByCurrentUser: !!(likes && likes.length > 0),
+        };
+    });
+
+
+    res.status(200).json({
+      success: true,
+      posts: transformedPosts, // Send transformed posts
+      pagination: {
+        page,
+        limit,
+      },
+    });
+
+  } catch (err) {
+    console.error('Error fetching explore posts:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch explore posts' });
+  }
+};
