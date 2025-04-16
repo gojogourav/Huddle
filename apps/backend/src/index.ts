@@ -10,7 +10,7 @@ import utilsRoutes from './routes/utilsRoutes';
 const app = express()
 import http from 'http'
 import cors from 'cors'
-
+import tourPlanRoutes from './routes/tourPlanRoute'
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials:true
@@ -80,7 +80,7 @@ app.use('/api/like',likeRoutes)
 app.use('/api/comment',CommentRoutes)
 app.use('/api/post',postRoutes)
 app.use('/api/utils', utilsRoutes);
-
+app.use('/api/tour-plan', tourPlanRoutes); 
 server.listen(PORT, () => {
 
     console.log(`Server running at http://localhost:${PORT}`);

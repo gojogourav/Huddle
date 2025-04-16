@@ -1,3 +1,4 @@
+import { updateUserPreferences } from '../controllers/TourController';
 import { fetchCurrUserProfile, fetchFollowingPost, fetchGlobalUserProfile, fetchUserPosts, followersUsers, followingUsers, followToggle, isFollowing, lookupUsersByUsername, updateProfile } from '../controllers/userController';
 import { authMiddleware } from '../middlewares/authMiddleware';
 import express from 'express'
@@ -8,7 +9,7 @@ router.put('/profile', authMiddleware, updateProfile);
 router.get('/:identifier/profile', authMiddleware, fetchGlobalUserProfile);
 router.get('/:identifier/post', authMiddleware, fetchUserPosts);
 router.get('/lookup', authMiddleware, lookupUsersByUsername);
-
+router.put('/profile/preferences', authMiddleware, updateUserPreferences);
 
 router.get('/feed/following',authMiddleware,fetchFollowingPost)
 router.get('/:identifier/is-following', authMiddleware, isFollowing); // Made path more specific

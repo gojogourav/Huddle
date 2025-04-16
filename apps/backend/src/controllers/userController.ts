@@ -20,6 +20,7 @@ export const fetchCurrUserProfile = async (
         email: true,
         username: true,
         posts:true,
+        preferences:true
       }
     });
 

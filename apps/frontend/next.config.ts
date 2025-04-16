@@ -11,7 +11,8 @@ const nextConfig = {
         'via.placeholder.com',
         'assets.aceternity.com',
         'media.istockphoto.com',
-        'ik.imagekit.io'
+        'ik.imagekit.io',
+        'images.unsplash.com'
     ]
   },
   // Add the rewrites configuration for proxying
