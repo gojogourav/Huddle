@@ -1,14 +1,7 @@
 {
-    "build": {
-      "env": {
-        "NODE_ENV": "production"
-      }
-    },
     "version": 2,
-    "builds": [
-      {
-        "src": "package.json",
-        "use": "@vercel/next"
-      }
-    ]
+    "buildCommand": "turbo run build --filter=frontend",
+    "installCommand": "npm install",
+    "framework": "nextjs",
+    "outputDirectory": "apps/frontend/.next"
   }
