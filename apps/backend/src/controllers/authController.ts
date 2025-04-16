@@ -1,9 +1,9 @@
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
+import * as  bcrypt from 'bcryptjs';
 import { prisma, ratelimiterVerify, ratelimiterSignInSignUp } from '../utils/utils';
 import { redisClient } from '../config/redisConnection';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import { emailQueue } from '../utils/queues/emailQueue';
 
 // --- Interfaces ---

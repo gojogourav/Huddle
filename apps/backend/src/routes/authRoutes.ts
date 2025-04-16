@@ -1,4 +1,4 @@
-import express from 'express'
+import * as express from 'express';
 import { registerUser,loginUser, verifyLogin, logout, verifyRegistration } from '../controllers/authController';
 import { authMiddleware } from '../middlewares/authMiddleware';
 const router = express.Router();

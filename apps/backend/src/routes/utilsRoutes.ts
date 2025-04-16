@@ -1,5 +1,5 @@
 // src/routes/utilsRoutes.ts
-import express from 'express';
+import * as express from 'express';
 import { getImageKitAuth } from '../controllers/utilsController'; // Adjust path
 import { authMiddleware } from '../middlewares/authMiddleware'; // Import your authentication middleware
 

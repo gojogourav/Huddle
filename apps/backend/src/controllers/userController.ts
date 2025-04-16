@@ -1,4 +1,4 @@
-import { AuthenticationRequest } from "../middlewares/authMiddleware";
+import { AuthenticationRequest } from "../middlewares";
 import { Request, Response } from "express";
 import { prisma } from "../utils/utils";
 

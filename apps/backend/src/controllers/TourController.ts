@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { prisma } from "../utils/utils"; // Adjust path
-import { AuthenticationRequest } from '@/middlewares/authMiddleware'; // Adjust path
+import { AuthenticationRequest } from "../middlewares";
 import * as z from 'zod'; // Import zod for validation (used in updateUserPreferences)
 
 // --- Initialize Google AI Client ---

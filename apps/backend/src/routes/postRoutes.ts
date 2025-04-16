@@ -1,6 +1,6 @@
 import { deletePost, fetchExplorePosts, fetchSinglePost, PostPosts } from '../controllers/postController';
 import { authMiddleware } from '../middlewares/authMiddleware';
-import express from 'express'
+import * as express from 'express';
 const router = express.Router();
 
 router.delete('/post/:identifier', authMiddleware,deletePost)

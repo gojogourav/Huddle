@@ -1,7 +1,7 @@
 import { updateUserPreferences } from '../controllers/TourController';
 import { fetchCurrUserProfile, fetchFollowingPost, fetchGlobalUserProfile, fetchUserPosts, followersUsers, followingUsers, followToggle, isFollowing, lookupUsersByUsername, updateProfile } from '../controllers/userController';
 import { authMiddleware } from '../middlewares/authMiddleware';
-import express from 'express'
+import * as express from 'express';
 const router = express.Router();
 
 router.get('/profile', authMiddleware,fetchCurrUserProfile)

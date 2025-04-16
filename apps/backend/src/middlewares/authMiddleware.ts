@@ -1,6 +1,7 @@
 import { prisma } from "../utils/utils";
 import { NextFunction, Request, Response } from "express";
-import jwt, { JwtPayload } from 'jsonwebtoken'
+import * as jwt from 'jsonwebtoken';
+type JwtPayload = jwt.JwtPayload;
 
 export interface AuthenticationRequest<P=any,ResBody = any,ReqBody=any,ReqQuery=any> extends Request<P,ResBody,ReqBody,ReqQuery> {
     user?: { id: string }

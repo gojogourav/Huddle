@@ -1,7 +1,7 @@
 // src/controllers/utilsController.ts
 import { Response } from 'express';
-import ImageKit from 'imagekit';
-import { AuthenticationRequest } from '../middlewares/authMiddleware'; // Assuming your auth middleware type
+const ImageKit = require('imagekit');
+import { AuthenticationRequest } from "../middlewares";
 
 // Initialize ImageKit SDK (do this once, e.g., in a config file or here)
 // Ensure environment variables are loaded before this runs (e.g., using dotenv)

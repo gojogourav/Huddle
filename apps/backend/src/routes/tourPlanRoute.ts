@@ -1,5 +1,5 @@
 // src/routes/tourPlanRoutes.ts
-import express from 'express';
+import * as express from 'express';
 import { fetchMyTourPlans, generateTourPlanWithGemini, } from '../controllers/TourController'; // Adjust path
 import { authMiddleware } from '../middlewares/authMiddleware'; // Adjust path
 

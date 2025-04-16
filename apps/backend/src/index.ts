@@ -1,5 +1,5 @@
-import express from 'express'
-import cookieParser from 'cookie-parser'
+import  express from 'express'
+import  cookieParser from 'cookie-parser'
 import authRoutes from './routes/authRoutes'
 import userRoutes from './routes/userRoutes'
 import likeRoutes from './routes/LikeRoutes'
@@ -8,8 +8,8 @@ import postRoutes from './routes/postRoutes'
 import { Server, Socket } from 'socket.io';
 import utilsRoutes from './routes/utilsRoutes'; 
 const app = express()
-import http from 'http'
-import cors from 'cors'
+import  http from 'http'
+import  cors from 'cors'
 import tourPlanRoutes from './routes/tourPlanRoute'
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
