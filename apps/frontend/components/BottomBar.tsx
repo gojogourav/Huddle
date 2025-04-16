@@ -15,7 +15,7 @@ function Bottombar() {
     }
     const navLinks = [
         { href: '/', icon: Home, label: 'Home' },
-        { href: '/magic', icon: Wand2, label: 'Magic' },
+        { href: '/plan/generate', icon: Wand2, label: 'Magic' },
         { href: '/post', icon: PlusCircle, label: 'Friends' },
         { href: '/explore', icon: Compass, label: 'Explore' },
         { href: `/profile/${currentUser?.username}`, icon: User, label: 'Profile' },

@@ -6,210 +6,193 @@ import { useRouter } from 'next/navigation';
 import * as z from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { Loader2, Sparkles, Info } from 'lucide-react';
-import Link from 'next/link'; // For linking to preferences
+import { Loader2, Sparkles, Info, CheckCircle, List, Trash2, Star, ArrowLeft, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
+import { format } from 'date-fns';
 
-// Assuming these are shadcn/ui components, adjust paths if needed
+// UI Components (Adjust paths if necessary)
 import { Button } from '@/components/ui/button';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+// Import ALL form components from shadcn/ui
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For showing info
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
-// Assuming PlanDisplay component exists and expects these props
-import PlanDisplay from '@/components/PlnDisplay'; // Adjust path if needed
-import { useAuth } from '@/hooks/useAuth'; // Adjust path if needed
-import { UserPreferences } from '@/lib/preferencesOptions'; // Adjust path if needed
+// Hooks, Types, Utils (Adjust paths if necessary)
+import { useAuth } from '@/hooks/useAuth'; // Assuming this hook provides { currentUser, isLoading, refetchUser }
+import { UserPreferences } from '@/lib/preferencesOptions'; // Assuming this type exists { pace?, budget?, interests?, accommodation? }
 
-// --- Types for PlanDisplay ---
-// Define these types explicitly here or import them from a shared file
-interface ScheduleItem {
-    time_slot: string;
-    activity_title: string;
-    description: string;
-    local_insight: string;
-    estimated_duration_minutes: number;
-    budget_indicator: string;
-    transport_suggestion?: string;
-}
-interface GeneratedOneDayPlan {
-    plan_title: string;
+// --- Types ---
+interface SavedPlanInfo {
+    id: string;
+    title: string;
     location: string;
-    date_applicable: string;
-    plan_summary: string;
-    schedule: ScheduleItem[];
+    createdAt: string; // ISO String
+    isActive: boolean;
 }
-
-// --- Zod Schema for THIS form (only location needed) ---
+interface FetchMyPlansResponse {
+    success: boolean;
+    plans: SavedPlanInfo[];
+    message?: string;
+}
+// Schema for the location input form ONLY
 const generateLocationSchema = z.object({
-    location: z.string()
-                .trim() // Trim whitespace
-                .min(3, "Location must be at least 3 characters.")
-                .max(100, "Location is too long (max 100 characters)"),
+    location: z.string().trim().min(3, "Please enter a valid city/area (min 3 chars)").max(100, "Location is too long (max 100 chars)"),
 });
 type GenerateLocationFormValues = z.infer<typeof generateLocationSchema>;
 
+// Type for the expected response when generating a plan
+interface GeneratedPlanResponseData {
+    plan?: { location?: string }; // Backend might return generated plan details
+    planId: string;
+    success: boolean;
+    message?: string;
+}
 
 // --- Page Component ---
 function GeneratePlanPage() {
     const router = useRouter();
-    // Get user and loading status, also ability to refetch user data
     const { currentUser, isLoading: authLoading, refetchUser } = useAuth();
 
-    // State for plan generation
+    // State for Plan Generation
     const [isGenerating, setIsGenerating] = useState(false);
-    const [generateError, setGenerateError] = useState<string | null>(null); // Renamed error state
-    const [generatedPlan, setGeneratedPlan] = useState<GeneratedOneDayPlan | null>(null);
-    const [generatedPlanId, setGeneratedPlanId] = useState<string | undefined>(undefined);
+    const [generateError, setGenerateError] = useState<string | null>(null);
+    const [generateSuccess, setGenerateSuccess] = useState<string | null>(null);
 
-    // State for preferences
+    // State for User Preferences
     const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
-    const [isLoadingPrefs, setIsLoadingPrefs] = useState(true); // Loading state for preferences
-    const [prefsError, setPrefsError] = useState<string | null>(null); // Error state for preferences fetch
-
-    // Derived state: checks if essential preferences (interests) are present
+    const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
+    const [prefsError, setPrefsError] = useState<string | null>(null);
     const hasRequiredPreferences = !!userPreferences?.interests && userPreferences.interests.length > 0;
 
-    // --- Form for location input only ---
+    // State for List of Saved Plans
+    const [savedPlans, setSavedPlans] = useState<SavedPlanInfo[]>([]);
+    const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+    const [plansError, setPlansError] = useState<string | null>(null);
+    const [actionLoading, setActionLoading] = useState<string | null>(null); // Tracks ID being acted upon
+    const [actionErrorState, setActionErrorState] = useState<string | null>(null);
+
+    // --- Form Hook for Location Input ---
+    // Initialize the form using useForm
     const form = useForm<GenerateLocationFormValues>({
         resolver: zodResolver(generateLocationSchema),
         defaultValues: { location: '' },
-        mode: 'onChange', // Validate as user types
+        mode: 'onChange', // Validate as user types for better feedback
     });
+    const { control, handleSubmit, reset } = form; // Destructure needed methods
 
-    // --- Effect to Load User Preferences ---
+    // --- Fetch Preferences ---
     const loadPreferences = useCallback(async () => {
-        // Only run if auth is loaded and user exists
         if (authLoading || !currentUser) {
-            // If auth loaded but no user, redirect (or handle logged out state)
-            if (!authLoading && !currentUser) {
-                router.replace('/login?message=Please log in to generate a plan.');
-            }
-            return; // Exit if auth loading or no user
+            if (!authLoading && !currentUser) router.replace('/login?message=Login required');
+            setIsLoadingPrefs(false); return;
         }
-
-        console.log("[loadPreferences] Auth loaded, User exists. Fetching preferences...");
-        setIsLoadingPrefs(true);
-        setPrefsError(null); // Clear previous preference errors
-        setUserPreferences(null); // Clear previous prefs
-
-        // Check context first (more efficient if AuthProvider fetches prefs)
-        const prefsFromContext = (currentUser as any)?.preferences;
-        if (prefsFromContext && typeof prefsFromContext === 'object' && Array.isArray(prefsFromContext.interests)) { // Basic check
-            console.log("[loadPreferences] Using preferences found in AuthContext:", prefsFromContext);
+        setIsLoadingPrefs(true); setPrefsError(null); setUserPreferences(null);
+        const prefsFromContext = (currentUser as any)?.preferences; // Check context first
+        if (prefsFromContext?.interests?.length > 0) { // Check interests specifically
             setUserPreferences(prefsFromContext as UserPreferences);
-            setIsLoadingPrefs(false);
-            return; // Exit early
+            setIsLoadingPrefs(false); return;
         }
-
-        // Fallback: Fetch profile specifically for preferences
-        console.log("[loadPreferences] Preferences not in context, fetching profile...");
+        // Fallback fetch if not in context or incomplete
         try {
             const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-            // Ensure this endpoint returns the 'preferences' field
             const response = await fetch(`${backendUrl}/api/user/profile`, { credentials: 'include', cache: 'no-store' });
-            console.log("[loadPreferences] Profile fetch status:", response.status);
-            if (!response.ok) throw new Error(`Failed to fetch profile (${response.status})`);
+            if (!response.ok) throw new Error(`Fetch profile failed (${response.status})`);
             const data = await response.json();
-            console.log("[loadPreferences] Profile fetch data:", data);
-
+            // Check structure carefully before setting state
             if (data.success && data.data?.preferences && typeof data.data.preferences === 'object') {
-                setUserPreferences(data.data.preferences);
-                console.log("[loadPreferences] Fetched preferences:", data.data.preferences);
-            } else {
-                setUserPreferences(null); // No preferences set in DB
-                console.log("[loadPreferences] No preferences object found in fetched profile data.");
-            }
-        } catch (fetchErr: any) {
-            console.error("[loadPreferences] Error fetching profile/prefs:", fetchErr);
-            setPrefsError("Could not load your saved preferences."); // Set specific error for prefs
-            setUserPreferences(null);
-        } finally {
-            console.log("[loadPreferences] Finished loading preferences.");
-            setIsLoadingPrefs(false);
-        }
-    // Add router to dependency array as it's used
-    }, [currentUser, authLoading, router]);
+                 setUserPreferences(data.data.preferences);
+            } else { setUserPreferences(null); }
+        } catch (err: any) { setPrefsError("Could not load preferences."); setUserPreferences(null); }
+        finally { setIsLoadingPrefs(false); }
+    }, [currentUser, authLoading, router]); // Dependencies
 
-    useEffect(() => {
-        loadPreferences();
-    }, [loadPreferences]); // Run loadPreferences when dependencies change
+    useEffect(() => { loadPreferences(); }, [loadPreferences]);
 
-
-    // --- Form Submission Handler for Plan Generation ---
-    async function onSubmit(values: GenerateLocationFormValues) {
-        // Guard clauses
-        if (!currentUser) { setGenerateError("Authentication error."); return; }
-        if (isLoadingPrefs) { setGenerateError("Preferences check still in progress."); return; }
-        if (!hasRequiredPreferences) {
-            setGenerateError("Please set your travel interests before generating."); return;
-        }
-
-        setIsGenerating(true); setGenerateError(null); setGeneratedPlan(null); setGeneratedPlanId(undefined);
-
+    // --- Fetch Saved Plans ---
+    const fetchSavedPlans = useCallback(async () => {
+        if (!currentUser) return;
+        setIsLoadingPlans(true); setPlansError(null);
         try {
-            // Backend only needs location; it uses saved preferences via auth cookie
-            const requestBody = { location: values.location };
-            console.log("[GeneratePlanPage] Submitting to generate plan:", requestBody);
-
             const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-            const response = await fetch(`${backendUrl}/api/tour-plan/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(requestBody),
-            });
-            console.log("[GeneratePlanPage] Generate Response Status:", response.status);
+            const response = await fetch(`${backendUrl}/api/tour-plan/my-plans`, { credentials: 'include', cache: 'no-store' });
+            if (!response.ok) throw new Error(`Fetch saved plans failed (${response.status})`);
+            const data: FetchMyPlansResponse = await response.json();
+            if (!data.success || !Array.isArray(data.plans)) throw new Error(data.message || "Invalid plans data.");
+            setSavedPlans(data.plans);
+        } catch (err: any) { setPlansError(err.message || "Failed."); setSavedPlans([]); }
+        finally { setIsLoadingPlans(false); }
+    }, [currentUser]);
 
-            const data = await response.json();
-            if (!response.ok || !data.success) {
-                throw new Error(data.message || `Failed to generate plan (${response.status})`);
-            }
+    useEffect(() => { fetchSavedPlans(); }, [fetchSavedPlans]);
 
-            console.log("[GeneratePlanPage] Generated Plan Data:", data);
-            setGeneratedPlan(data.plan);
-            setGeneratedPlanId(data.planId);
-             // Clear location input after successful generation
-             form.reset({ location: '' });
-
-        } catch (err: any) {
-            console.error("[GeneratePlanPage] Plan Generation Error:", err);
-            setGenerateError(err.message || "An error occurred during plan generation.");
-            setGeneratedPlan(null); // Clear plan on error
-        } finally {
-            setIsGenerating(false);
+    // --- Plan Generation Submission Handler ---
+    const onSubmitGeneration = async (values: GenerateLocationFormValues) => {
+        if (!currentUser || isLoadingPrefs || !hasRequiredPreferences) {
+            setGenerateError("Cannot generate: Preferences missing or loading."); return;
         }
+        setIsGenerating(true); setGenerateError(null); setGenerateSuccess(null); setActionErrorState(null);
+        try {
+            const requestBody = { location: values.location }; // Only send location
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+            const response = await fetch(`${backendUrl}/api/tour-plan/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(requestBody) });
+            const data: GeneratedPlanResponseData = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || `Failed (${response.status})`);
+
+            const generatedLocation = data.plan?.location || values.location;
+            setGenerateSuccess(`Generated plan for ${generatedLocation}! It's now active.`);
+            reset({ location: '' }); // Clear location input using form's reset
+            await refetchUser();      // Update context (active plan ID likely changed)
+            await fetchSavedPlans();  // Refresh the list
+            setTimeout(() => setGenerateSuccess(null), 5000); // Clear success message
+        } catch (err: any) { setGenerateError(err.message || "Error generating plan."); }
+        finally { setIsGenerating(false); }
     }
 
-    // --- Callback for when PreferencesForm (if rendered directly) saves successfully ---
-     const handlePreferencesSaved = () => {
-         console.log("[HomePage] Preferences saved callback. Refetching preferences.");
-         // Trigger a refetch of preferences after they are saved on another page/component
-         // This assumes the user navigated back or the state needs updating
-         loadPreferences(); // Reload preferences for this page
-         // Potentially clear any generated plan as prefs changed?
-         // setGeneratedPlan(null);
-         // setGeneratedPlanId(undefined);
-    };
+    // --- Set Active Plan Handler ---
+    const handleSetActivePlan = async (planId: string) => {
+        if (actionLoading || isGenerating) return; // Prevent overlap
+        setActionLoading(planId); setActionErrorState(null); setGenerateSuccess(null);
+        try {
+            // Ensure Backend Endpoint exists: PUT /api/tour-plan/set-active/:planId
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+            const response = await fetch(`${backendUrl}/api/tour-plan/set-active/${planId}`, { method: 'PUT', credentials: 'include' });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || "Failed.");
+            await refetchUser();      // Update context
+            await fetchSavedPlans();  // Refresh list UI
+            setGenerateSuccess(`Plan set as active!`); // Use general success message area
+            setTimeout(() => setGenerateSuccess(null), 4000);
+        } catch (err: any) { setActionErrorState(err.message || "Could not set active."); }
+        finally { setActionLoading(null); }
+    }
+
+    // --- Delete Plan Handler ---
+    const handleDeletePlan = async (planId: string) => {
+        if (actionLoading || isGenerating) return;
+        setActionLoading(planId); setActionErrorState(null); setGenerateSuccess(null);
+        try {
+            // Ensure Backend Endpoint exists: DELETE /api/tour-plan/:planId
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+            const response = await fetch(`${backendUrl}/api/tour-plan/${planId}`, { method: 'DELETE', credentials: 'include' });
+            if (!response.ok && response.status !== 204) { const d = await response.json().catch(() => ({})); throw new Error(d.message || `Failed (${response.status})`); }
+            await fetchSavedPlans(); // Refresh list
+            if (currentUser?.activeTourPlanid === planId) await refetchUser(); // Update context if active deleted
+        } catch (err: any) { setActionErrorState(err.message || "Could not delete."); }
+        finally { setActionLoading(null); }
+    }
 
     // --- Render Logic ---
+    // Initial Loading Checks
+    if (authLoading) { return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-16 w-16 animate-spin text-[#ff0050]" /></div>; }
+    if (!currentUser) { return null; } // Redirect handled in effect
+    if (isLoadingPrefs) { return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-16 w-16 animate-spin text-[#ff0050]" /></div>; }
 
-    // Show main loading spinner ONLY while checking auth initially
-    if (authLoading) {
-        return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-16 w-16 animate-spin text-[#ff0050]" /></div>;
-    }
-
-    // If auth check is done but user is not logged in (redirect should have happened, but safety check)
-    if (!currentUser) {
-         return <div className="min-h-screen flex items-center justify-center"><p>Please log in.</p></div>;
-    }
-
-    // Show preference loading state if still loading *after* auth is done
-    if (isLoadingPrefs) {
-         return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-16 w-16 animate-spin text-[#ff0050]" /></div>;
-    }
-
-    // Show prompt to set preferences if they are missing AFTER loading finishes
+    // Prompt to set preferences if missing
     if (!hasRequiredPreferences) {
         return (
             <div className="container mx-auto py-10 px-4 max-w-lg text-center">
@@ -217,90 +200,140 @@ function GeneratePlanPage() {
                      <Info className="h-4 w-4 !stroke-yellow-700" />
                     <AlertTitle className="font-semibold">Set Your Preferences!</AlertTitle>
                     <AlertDescription>
-                         {/* Show specific error if pref loading failed */}
                          {prefsError || "To generate personalized plans, please set your travel interests first."}
                          <br />
                          <Button variant="link" className="text-yellow-800 dark:text-yellow-200 h-auto p-0 mt-2 underline" asChild>
-                              {/* Make sure this route exists */}
                               <Link href="/settings/preferences">Go to Preferences</Link>
                          </Button>
                     </AlertDescription>
                  </Alert>
-                 {/* You could render <PreferencesForm onSaveSuccess={handlePreferencesSaved} /> here instead of linking */}
             </div>
         );
     }
 
-    // --- Main UI: Generation Form + Plan Display ---
+    // Main Generation UI + Plan List
     return (
-        <div className="max-w-2xl mx-auto py-8 px-4 space-y-10"> {/* Add space between card and plan */}
+        <div className="max-w-4xl mx-auto py-8 px-4 space-y-12">
+             <Button variant="outline" size="sm" onClick={() => router.back()} className="mb-4 self-start">
+                 <ArrowLeft className="mr-2 h-4 w-4" /> Back
+             </Button>
+
             {/* Generation Card */}
             <Card className="shadow-lg border-gray-200 dark:border-gray-700 dark:bg-gray-800">
                 <CardHeader>
-                    <CardTitle className="text-2xl font-bold text-center text-gray-800 dark:text-gray-100">Generate Your Next Adventure</CardTitle>
+                    <CardTitle className="text-2xl font-bold text-center text-gray-800 dark:text-gray-100">Generate a New Day Plan</CardTitle>
                     <CardDescription className="text-center text-gray-500 dark:text-gray-400 pt-1">
-                        Enter a location, and we'll use your saved preferences.
+                        Enter your destination. We'll use your saved preferences.
                     </CardDescription>
-                    {/* Display summary of preferences being used */}
+                    {/* Display summary of preferences */}
                     {userPreferences && (
-                        <div className="text-xs text-center text-gray-400 dark:text-gray-500 pt-3 border-t mt-3">
-                             Using:
-                             Pace: {userPreferences.pace || 'Any'},
-                             Budget: {userPreferences.budget || 'Any'},
-                             Interests: {userPreferences.interests?.slice(0, 3).join(', ')}{userPreferences.interests && userPreferences.interests.length > 3 ? '...' : ''}.
-                             <Link href="/settings/preferences" className="ml-2 underline text-cyan-600 dark:text-cyan-400 text-[11px] hover:text-cyan-800">Edit</Link>
+                        <div className="text-xs text-center text-gray-500 dark:text-gray-400 pt-3 border-t mt-3">
+                             Using: Pace: {userPreferences.pace || 'Any'}, Budget: {userPreferences.budget || 'Any'}, Interests: {userPreferences.interests?.slice(0, 3).join(', ')}{userPreferences.interests && userPreferences.interests.length > 3 ? '...' : ''}.
+                             <Button variant="link" className="p-0 h-auto ml-2 text-cyan-600 dark:text-cyan-400 text-[11px] underline hover:text-cyan-800" asChild>
+                                <Link href="/settings/preferences">Edit</Link>
+                            </Button>
                         </div>
                     )}
                 </CardHeader>
                 <CardContent>
+                    {/* Pass the form object to the Form provider */}
                     <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                            <FormField control={form.control} name="location" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Destination City/Area</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="e.g., Bangalore, Kyoto, Manhattan" {...field} disabled={isGenerating} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )} />
-
-                            {/* Display generation errors */}
-                            {generateError && <p className="text-sm font-medium text-red-600 text-center pt-2">{generateError}</p>}
-
+                        {/* The actual HTML form element */}
+                        <form onSubmit={handleSubmit(onSubmitGeneration)} className="space-y-4">
+                            {/* Location Input Field */}
+                            <FormField
+                                control={control} // Use control from the main form instance
+                                name="location"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Destination City/Area</FormLabel>
+                                        {/* FormControl wraps the single Input child */}
+                                        <FormControl>
+                                            <Input
+                                                placeholder="e.g., Bangalore, Kyoto, Manhattan"
+                                                {...field} // Spread field props (onChange, onBlur, value, ref)
+                                                disabled={isGenerating}
+                                            />
+                                        </FormControl>
+                                        <FormMessage /> {/* Displays validation errors */}
+                                    </FormItem>
+                                )}
+                            />
+                            {/* Generation Specific Error */}
+                            {generateError && <p className="text-sm font-medium text-red-600 text-center pt-1">{generateError}</p>}
+                            {/* Generation Success Message */}
+                            {generateSuccess && !isGenerating && (
+                                <Alert variant="default" className="bg-green-50 border-green-300 text-green-800 dark:bg-green-900/50 dark:border-green-700 dark:text-green-100">
+                                    <CheckCircle className="h-4 w-4 !stroke-green-700" />
+                                    <AlertTitle className="font-semibold">Success!</AlertTitle>
+                                    <AlertDescription>
+                                        {generateSuccess}
+                                        <Button variant="link" className="p-0 h-auto ml-2 text-green-800 dark:text-green-200 underline" asChild>
+                                            <Link href="/">View Active Plan</Link>
+                                        </Button>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                            {/* Submit Button */}
                             <Button
                                 type="submit"
                                 className="w-full py-3 bg-[#ff0050] hover:bg-black text-white rounded-md transition-colors flex items-center justify-center"
-                                disabled={isGenerating || isLoadingPrefs} // Also disable if somehow prefs are still loading
+                                disabled={isGenerating || isLoadingPrefs}
                             >
-                                {isGenerating ? (
-                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
-                                ) : (
-                                    <><Sparkles className="mr-2 h-4 w-4" /> Generate Plan</>
-                                )}
+                                {isGenerating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</> : <><Sparkles className="mr-2 h-4 w-4" /> Generate Plan</>}
                             </Button>
                         </form>
                     </Form>
                 </CardContent>
             </Card>
 
-            {/* Display Generated Plan */}
-            {/* Conditionally render PlanDisplay only when a plan is generated */}
-            {generatedPlan && (
-                 <div className="mt-10">
-                    <PlanDisplay plan={generatedPlan} planId={generatedPlanId} />
-                 </div>
-            )}
+            {/* List of Saved Plans */}
+            <div className="mt-12">
+                <h2 className="text-xl font-semibold mb-4 flex items-center"><List className="mr-2 h-5 w-5 text-gray-600 dark:text-gray-400"/> Your Saved Plans</h2>
+                 {isLoadingPlans && (<div className="flex justify-center p-6"><Loader2 className="h-8 w-8 animate-spin text-[#ff0050]" /></div>)}
+                 {plansError && (<Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertTitle>Error Loading Plans</AlertTitle><AlertDescription>{plansError}</AlertDescription></Alert>)}
+                 {actionErrorState && (<Alert variant="destructive" className="mt-2"><AlertCircle className="h-4 w-4" /><AlertTitle>Action Error</AlertTitle><AlertDescription>{actionErrorState}</AlertDescription></Alert>)}
 
-             {/* Optional: Show a message while generating below the form */}
-             {isGenerating && !generatedPlan && (
-                  <div className="mt-10 flex flex-col items-center text-center text-gray-500">
-                     <Loader2 className="h-8 w-8 animate-spin text-[#ff0050] mb-3"/>
-                     <p>Generating your personalized plan...</p>
-                     <p className="text-xs mt-1">(This might take a moment)</p>
-                  </div>
-             )}
+                 {!isLoadingPlans && !plansError && savedPlans.length === 0 && ( <p className="text-center text-neutral-500">You haven't generated any plans yet.</p> )}
 
+                 {!isLoadingPlans && !plansError && savedPlans.length > 0 && (
+                     <ul className="space-y-3">
+                         {savedPlans.map(plan => (
+                             <li key={plan.id} className={`flex items-center justify-between p-3 border rounded-md shadow-sm transition-colors ${plan.isActive ? 'bg-cyan-50/50 border-cyan-300 dark:bg-cyan-900/20 dark:border-cyan-700' : 'bg-white dark:bg-gray-800/80 border-gray-200 dark:border-gray-700'}`}>
+                                 {/* Plan Info */}
+                                 <div className="flex-1 min-w-0 mr-2">
+                                     <p className={`font-medium text-sm truncate ${plan.isActive ? 'text-cyan-800 dark:text-cyan-100' : 'text-gray-800 dark:text-gray-100'}`} title={plan.title}>{plan.title}</p>
+                                     <p className="text-xs text-gray-500 dark:text-gray-400 truncate" title={plan.location}>
+                                        {plan.location} - Created {format(new Date(plan.createdAt), "MMM d, yyyy")}
+                                     </p>
+                                 </div>
+                                 {/* Action Buttons */}
+                                 <div className="flex items-center space-x-1 md:space-x-2 flex-shrink-0">
+                                      {plan.isActive ? (
+                                           <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-full dark:bg-green-900/50 dark:text-green-300 inline-flex items-center flex-shrink-0"> <Star className="mr-1 h-3 w-3 fill-current"/> Active </span>
+                                      ) : (
+                                          <Button variant="outline" size="sm" className="text-xs h-7 px-2" onClick={() => handleSetActivePlan(plan.id)} disabled={actionLoading === plan.id} aria-label={`Set ${plan.title} as active`}>
+                                               {actionLoading === plan.id ? <Loader2 className="h-3 w-3 animate-spin"/> : <Star className="mr-1 h-3 w-3"/>} Set Active
+                                           </Button>
+                                      )}
+                                      {/* Delete Confirmation */}
+                                      <AlertDialog>
+                                         <AlertDialogTrigger asChild>
+                                             <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-500" disabled={actionLoading === plan.id} aria-label={`Delete plan ${plan.title}`}>
+                                                 {actionLoading === plan.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <Trash2 className="h-4 w-4"/>}
+                                             </Button>
+                                         </AlertDialogTrigger>
+                                         <AlertDialogContent>
+                                             <AlertDialogHeader><AlertDialogTitle>Delete Plan?</AlertDialogTitle><AlertDialogDescription>Permanently delete "{plan.title}"?</AlertDialogDescription></AlertDialogHeader>
+                                             <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeletePlan(plan.id)} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction></AlertDialogFooter>
+                                         </AlertDialogContent>
+                                     </AlertDialog>
+                                 </div>
+                             </li>
+                         ))}
+                     </ul>
+                )}
+            </div>
         </div>
     );
 }

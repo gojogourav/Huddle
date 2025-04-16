@@ -79,16 +79,16 @@ function UserProfilePageContainer() {
             {/* Header */}
             <div className='justify-between flex items-center mb-4'>
                 <Button variant="ghost" size="icon" onClick={() => router.back()}>
-                    <ArrowLeft strokeWidth={2.5} className='h-6 w-6' />
+                    <ArrowLeft strokeWidth={2.5} className='h-7 w-7' />
                 </Button>
                 <h1 className="font-semibold text-lg truncate px-2">
                     {isLoadingProfile ? 'Loading...' : (profile?.username || 'Profile')}
                 </h1>
-                 <div className="w-10 h-10 flex items-center justify-center">
+                 <div className="text-2xl flex items-center justify-center">
                       {/* Render icons based on loaded profile state */}
                       {!isLoadingProfile && profile && isOwnProfile && (
                            <Button variant="ghost" size="icon" onClick={() => router.push('/profile/edit')}> {/* Or trigger modal */}
-                               <Settings strokeWidth={2.5} className='h-6 w-6'/>
+                               <Settings strokeWidth={2.5} className='h-7 w-7'/>
                            </Button>
                       )}
                       {!isLoadingProfile && profile && !isOwnProfile && (

@@ -1,264 +1,316 @@
-// app/page.tsx (or your designated home page route)
+// src/components/ScrollablePreferencesForm.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles, Settings, Info } from 'lucide-react';
-
-import { useAuth } from '@/hooks/useAuth'; // Adjust path
-import { ScrollablePreferencesForm } from '@/components/PreferencesForm'; // Adjust path
-import PlanDisplay from '@/components/PlnDisplay';
-import { UserPreferences } from '@/lib/preferencesOptions'; // Adjust path
-import { Button } from '@/components/ui/button';
-import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // For preference prompt
-import { Input } from '@/components/ui/input'; // For location input if generating directly
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'; // For location input form
-import * as z from 'zod'; // For location input validation
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import * as z from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useForm, useWatch } from 'react-hook-form';
+import { Loader2, Save, ArrowUp, ArrowDown, CheckCircle } from 'lucide-react';
 
+// UI Components (Adjust paths)
+import { Button } from '@/components/ui/button';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from "@/components/ui/progress";
 
-// --- Types (Import or define) ---
-interface ScheduleItem { time_slot: string; activity_title: string; description: string; local_insight: string; estimated_duration_minutes: number; budget_indicator: string; transport_suggestion?: string; }
-interface GeneratedOneDayPlan { plan_title: string; location: string; date_applicable: string; plan_summary: string; schedule: ScheduleItem[]; }
+// Auth and Options (Adjust paths)
+import { useAuth } from '@/hooks/useAuth';
+import {
+    paceOptions, budgetOptions, interestOptions, accommodationOptions, UserPreferences
+} from '@/lib/preferencesOptions';
 
-// --- Schema for simple location input ---
-const locationSchema = z.object({
-    location: z.string().min(3, "Please enter a valid city/area").max(100),
+// --- Zod Schema ---
+// Using the version without .default([]) for arrays to avoid TS conflict with resolver
+const preferencesFormSchema = z.object({
+    pace: z.enum(['relaxed', 'moderate', 'fast-paced']).optional().nullable(),
+    budget: z.enum(['budget-friendly', 'mid-range', 'luxury']).optional().nullable(),
+    interests: z.array(z.string()).optional(),
+    accommodation: z.array(z.string()).optional(),
 });
-type LocationFormValues = z.infer<typeof locationSchema>;
+type PreferencesFormValues = z.infer<typeof preferencesFormSchema>;
 
 
-function HomePage() {
-    // --- State ---
-    const { currentUser, isLoading: authLoading, refetchUser } = useAuth();
-    // Store the active plan (could be from context or fetched)
-    const [activePlan, setActivePlan] = useState<GeneratedOneDayPlan | null>(null);
-    const [activePlanId, setActivePlanId] = useState<string | null>(null);
-    // State for managing plan generation directly on this page
-    const [showGenerateForm, setShowGenerateForm] = useState(false); // Toggle for generation UI
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [generateError, setGenerateError] = useState<string | null>(null);
-    // State to track if initial check for active plan/prefs is done
-    const [isInitialCheckLoading, setIsInitialCheckLoading] = useState(true);
-    const [hasPreferences, setHasPreferences] = useState(false); // Track if user has minimum prefs set
+// --- Step Input Sub-Components ---
+interface StepInputProps { control: any; isSaving: boolean; }
 
-
-    // --- Form for Location Input (used if generating directly) ---
-    const locationForm = useForm<LocationFormValues>({
-        resolver: zodResolver(locationSchema),
-        defaultValues: { location: '' },
-    });
-
-    // --- Effect to Check for Active Plan and Preferences on Load ---
-    useEffect(() => {
-        setIsInitialCheckLoading(true);
-        console.log("[HomePage] Auth Loading:", authLoading, "CurrentUser:", !!currentUser);
-
-        if (!authLoading && currentUser) {
-            // Option 1: Check currentUser from AuthContext (if it includes activeTourPlan and preferences)
-             const userWithDetails = currentUser as typeof currentUser & { preferences?: UserPreferences | null; activeTourPlan?: { id: string; planData: any | null } | null }; // Type assertion
-
-            const prefs = userWithDetails.preferences;
-            const plan = userWithDetails.activeTourPlan;
-
-             console.log("[HomePage] User loaded. Prefs:", prefs, "Active Plan:", plan);
-
-
-            if (plan?.planData) {
-                console.log("[HomePage] Active plan found in AuthContext.");
-                 try {
-                    // Attempt to parse planData. Ensure backend stores valid JSON.
-                    // The 'planData' might be stored as a string or already parsed depending on Prisma/backend.
-                    const parsedPlan = typeof plan.planData === 'string' ? JSON.parse(plan.planData) : plan.planData;
-                     // TODO: Add more robust validation of parsedPlan structure here
-                     if (parsedPlan && parsedPlan.schedule) {
-                         setActivePlan(parsedPlan as GeneratedOneDayPlan);
-                         setActivePlanId(plan.id);
-                         setShowGenerateForm(false); // Hide generator if active plan exists
-                     } else {
-                         console.warn("Active plan data found but structure is invalid.");
-                         setActivePlan(null); // Treat invalid plan as no active plan
-                         setActivePlanId(null);
-                         setShowGenerateForm(true); // Show generator if plan is invalid
-                     }
-
-                 } catch (e) {
-                     console.error("Failed to parse active plan data:", e);
-                     setActivePlan(null); // Treat parse error as no active plan
-                     setActivePlanId(null);
-                     setShowGenerateForm(true); // Show generator if plan is invalid
-                 }
-
-            } else {
-                 console.log("[HomePage] No active plan found in AuthContext.");
-                 setActivePlan(null);
-                 setActivePlanId(null);
-                 setShowGenerateForm(true); // Show generator if no active plan
-            }
-
-            // Check if user has minimum required preferences (e.g., interests)
-            if (prefs && Array.isArray(prefs.interests) && prefs.interests.length > 0) {
-                 setHasPreferences(true);
-                 console.log("[HomePage] User has preferences set.");
-            } else {
-                 setHasPreferences(false);
-                 console.log("[HomePage] User preferences are missing or incomplete.");
-            }
-            setIsInitialCheckLoading(false);
-
-        } else if (!authLoading && !currentUser) {
-            // User is not logged in
-            console.log("[HomePage] User not logged in.");
-            setActivePlan(null);
-            setActivePlanId(null);
-            setShowGenerateForm(false); // Don't show generator if logged out
-            setHasPreferences(false);
-            setIsInitialCheckLoading(false);
-        }
-         // If authLoading is still true, wait for the next render cycle
-         else {
-            console.log("[HomePage] Waiting for auth check...");
-         }
-
-    }, [currentUser, authLoading]); // Rerun when auth state changes
-
-    // --- Handler for Generating a Plan Directly ---
-    const handleGeneratePlan = async (values: LocationFormValues) => {
-        if (!currentUser || !hasPreferences) {
-            setGenerateError("Cannot generate plan. Ensure you are logged in and have set preferences.");
-            return;
-        }
-        setIsGenerating(true); setGenerateError(null);
-
-        try {
-            const requestBody = { location: values.location }; // Backend uses saved prefs
-            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-            const response = await fetch(`${backendUrl}/api/tour-plan/generate`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', body: JSON.stringify(requestBody),
-            });
-            const data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.message || 'Failed to generate plan.');
-
-            console.log("Generated Plan Directly:", data);
-            setActivePlan(data.plan); // Display the new plan
-            setActivePlanId(data.planId);
-            setShowGenerateForm(false); // Hide form after generation
-            // Optional: Trigger refetchUser if backend sets the new plan as active
-            // await refetchUser();
-
-        } catch (err: any) {
-            console.error("Direct Plan Generation Error:", err);
-            setGenerateError(err.message || "An unexpected error occurred.");
-            setActivePlan(null); // Clear any previous plan on error
-        } finally {
-            setIsGenerating(false);
-        }
-    };
-
-    // --- Handler for when Preferences are Saved (from PreferencesForm) ---
-    const handlePreferencesSaved = (savedPrefs: UserPreferences) => {
-        console.log("[HomePage] Preferences saved callback received.");
-        // Assume refetchUser already updated currentUser in context
-        // Re-evaluate if preferences are now sufficient
-        if (savedPrefs.interests && savedPrefs.interests.length > 0) {
-             setHasPreferences(true);
-             // Keep generate form visible, user might want to generate immediately
-             setShowGenerateForm(true);
-             // Clear any previous 'set preferences' error
-        }
-        // Potentially clear active plan if prefs changed significantly? Optional.
-        // setActivePlan(null);
-        // setActivePlanId(null);
-    };
-
-
-    // --- Render Logic ---
-    if (isInitialCheckLoading || authLoading) {
-        return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-16 w-16 animate-spin text-[#ff0050]" /></div>;
-    }
-
-    // Logged Out State
-    if (!currentUser) {
-         return (
-             <div className="min-h-screen flex flex-col items-center justify-center text-center p-6">
-                 <h1 className="text-4xl font-bold mb-4 text-cyan-700">Welcome to Your Tour Planner!</h1>
-                 <p className="text-lg text-gray-600 mb-8">Log in or sign up to create personalized travel itineraries.</p>
-                 <div className="flex gap-4">
-                     <Button asChild size="lg" className="bg-[#ff0050] hover:bg-black text-white"><Link href="/login">Login</Link></Button>
-                     <Button asChild size="lg" variant="outline"><Link href="/register">Register</Link></Button>
-                 </div>
-             </div>
-        );
-    }
-
-    // Logged In State
+function PaceInput({ control, isSaving }: StepInputProps) {
     return (
-        <div className="container mx-auto py-6 px-4">
+        <FormField control={control} name="pace" render={({ field }) => (
+            <FormItem className="space-y-3">
+                <FormLabel className="font-semibold text-base">Preferred Travel Pace</FormLabel>
+                <FormControl>
+                    <RadioGroup onValueChange={field.onChange} value={field.value ?? ""} className="grid grid-cols-1 gap-3" disabled={isSaving}>
+                        {paceOptions.map(option => (
+                            <FormItem key={option.value} className="flex items-center space-x-3 space-y-0 border p-4 rounded-md hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors has-[[data-state=checked]]:border-cyan-500 has-[[data-state=checked]]:bg-cyan-50/50 dark:has-[[data-state=checked]]:bg-cyan-900/20">
+                                <RadioGroupItem value={option.value} id={`pace-${option.value}`} />
+                                <FormLabel htmlFor={`pace-${option.value}`} className="font-normal cursor-pointer w-full text-sm leading-tight">{option.label}</FormLabel>
+                            </FormItem>
+                        ))}
+                    </RadioGroup>
+                </FormControl>
+                <FormMessage />
+            </FormItem>
+        )} />
+    );
+}
 
-            {/* Display Active Plan if it exists */}
-            {activePlan ? (
-                <>
-                    <div className="text-center mb-4">
-                         <h1 className="text-3xl font-bold">Your Active Plan</h1>
-                         {/* Button to allow generating a new one */}
-                         <Button variant="outline" size="sm" onClick={() => { setActivePlan(null); setActivePlanId(null); setShowGenerateForm(true); }} className="mt-2">
-                            Generate New Plan Instead
-                         </Button>
-                    </div>
-                    <PlanDisplay plan={activePlan} planId={activePlanId ?? undefined} />
-                </>
-            ) : (
-                // No Active Plan: Show Preference prompt or Generation Form
-                <>
-                    {hasPreferences ? (
-                        // User has preferences, show generation form
-                         <Card className="w-full max-w-lg mx-auto shadow-lg border-gray-200">
-                             <CardHeader>
-                                 <CardTitle className="text-2xl font-semibold text-center">Generate a New Day Plan</CardTitle>
-                                 <CardDescription className="text-center text-gray-500 pt-1">
-                                     Enter your destination. We'll use your saved <Link href="/settings/preferences" className="text-cyan-600 underline hover:text-cyan-800">preferences</Link> to create a plan.
-                                 </CardDescription>
-                             </CardHeader>
-                             <CardContent>
-                                <Form {...locationForm}>
-                                     <form onSubmit={locationForm.handleSubmit(handleGeneratePlan)} className="space-y-4">
-                                         <FormField control={locationForm.control} name="location" render={({ field }) => (
-                                             <FormItem>
-                                                 <FormLabel>Destination City/Area</FormLabel>
-                                                 <FormControl>
-                                                     <Input placeholder="e.g., London, Tokyo, Grand Canyon" {...field} disabled={isGenerating} />
-                                                 </FormControl>
-                                                 <FormMessage />
-                                             </FormItem>
-                                         )} />
-                                          {generateError && <p className="text-sm font-medium text-red-600 text-center">{generateError}</p>}
-                                         <Button type="submit" className="w-full bg-[#ff0050] hover:bg-black text-white" disabled={isGenerating}>
-                                             {isGenerating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</> : <><Sparkles className="mr-2 h-4 w-4" /> Generate Plan</>}
-                                         </Button>
-                                     </form>
-                                </Form>
-                            </CardContent>
-                         </Card>
-                    ) : (
-                        // User has NO preferences set, render the PreferencesForm
-                         <div className="max-w-lg mx-auto">
-                            <Alert variant="default" className="mb-6 bg-blue-50 border-blue-300 text-blue-800">
-                                 <Info className="h-4 w-4 !stroke-blue-700" />
-                                <AlertTitle className="font-semibold">Set Your Preferences</AlertTitle>
-                                <AlertDescription>
-                                     Tell us your travel style to generate personalized plans! Once saved, you can generate a plan.
-                                </AlertDescription>
-                             </Alert>
-                            <ScrollablePreferencesForm onSaveSuccess={handlePreferencesSaved} />
-                        </div>
-                    )}
-                </>
-            )}
+function BudgetInput({ control, isSaving }: StepInputProps) {
+     return (
+        <FormField control={control} name="budget" render={({ field }) => (
+            <FormItem className="space-y-3">
+                 <FormLabel className="font-semibold text-base">Typical Budget Level</FormLabel>
+                 <FormControl>
+                     <RadioGroup onValueChange={field.onChange} value={field.value ?? ""} className="grid grid-cols-1 gap-3" disabled={isSaving}>
+                         {budgetOptions.map(option => (
+                             <FormItem key={option.value} className="flex items-center space-x-3 space-y-0 border p-4 rounded-md hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors has-[[data-state=checked]]:border-cyan-500 has-[[data-state=checked]]:bg-cyan-50/50 dark:has-[[data-state=checked]]:bg-cyan-900/20">
+                                <RadioGroupItem value={option.value} id={`budget-${option.value}`} />
+                                <FormLabel htmlFor={`budget-${option.value}`} className="font-normal cursor-pointer w-full text-sm leading-tight">{option.label}</FormLabel>
+                             </FormItem>
+                         ))}
+                     </RadioGroup>
+                 </FormControl>
+                <FormMessage />
+            </FormItem>
+        )} />
+    );
+}
+
+function InterestsInput({ control, isSaving }: StepInputProps) {
+    return (
+        <FormField control={control} name="interests" render={({ field }) => (
+            <FormItem>
+                <FormLabel className="font-semibold text-base mb-3 block">Interests (Select all that apply)</FormLabel>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                    {interestOptions.map((item) => (
+                        <FormItem key={item.id} className="flex flex-row items-start space-x-3 space-y-0 border p-3 rounded-md hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors cursor-pointer has-[[data-state=checked]]:border-cyan-500 has-[[data-state=checked]]:bg-cyan-50/50 dark:has-[[data-state=checked]]:bg-cyan-900/20">
+                            <FormControl>
+                                <Checkbox
+                                    disabled={isSaving}
+                                    checked={(field.value ?? []).includes(item.id)}
+                                    onCheckedChange={(checked) => { const c = field.value??[]; return checked ? field.onChange([...c, item.id]) : field.onChange(c.filter((v: string) => v !== item.id)); }}
+                                    id={`interest-${item.id}`}
+                                />
+                            </FormControl>
+                            <FormLabel htmlFor={`interest-${item.id}`} className="text-sm font-normal cursor-pointer w-full leading-tight">{item.label}</FormLabel>
+                        </FormItem>
+                    ))}
+                </div>
+                <FormMessage />
+            </FormItem>
+        )} />
+    );
+}
+
+function AccommodationInput({ control, isSaving }: StepInputProps) {
+     return (
+        <FormField control={control} name="accommodation" render={({ field }) => (
+            <FormItem>
+                 <FormLabel className="font-semibold text-base mb-3 block">Preferred Accommodation</FormLabel>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                     {accommodationOptions.map((item) => (
+                        <FormItem key={item.id} className="flex flex-row items-start space-x-3 space-y-0 border p-3 rounded-md hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors cursor-pointer has-[[data-state=checked]]:border-cyan-500 has-[[data-state=checked]]:bg-cyan-50/50 dark:has-[[data-state=checked]]:bg-cyan-900/20">
+                            <FormControl>
+                                <Checkbox
+                                    disabled={isSaving}
+                                    checked={(field.value ?? []).includes(item.id)}
+                                    onCheckedChange={(checked) => { const c = field.value??[]; return checked ? field.onChange([...c, item.id]) : field.onChange(c.filter((v: string) => v !== item.id)); }}
+                                    id={`accom-${item.id}`}
+                                />
+                            </FormControl>
+                            <FormLabel htmlFor={`accom-${item.id}`} className="text-sm font-normal cursor-pointer w-full leading-tight">{item.label}</FormLabel>
+                        </FormItem>
+                     ))}
+                 </div>
+                 <FormMessage />
+             </FormItem>
+          )}
+        />
+    );
+}
+
+function SummaryDisplay({ control }: StepInputProps) {
+    const watchedValues = useWatch({ control }) as PreferencesFormValues;
+    const getLabel = (options: {value: string; label: string}[], value: string | null | undefined) => options.find(opt => opt.value === value)?.label || <em className="text-gray-500 dark:text-gray-400">Not Selected</em>;
+    const getLabels = (options: {id: string; label: string}[], values: string[] | undefined) => {
+        if (!values || values.length === 0) return <em className="text-gray-500 dark:text-gray-400">None Selected</em>;
+        return values.map(val => options.find(opt => opt.id === val)?.label).filter(Boolean).join(', ');
+    }
+    return (
+        <div className="space-y-3 text-sm p-4 border rounded-md bg-gray-50/50 dark:bg-gray-800/30">
+             <h4 className="font-semibold text-base mb-3 text-gray-800 dark:text-gray-200">Review Your Choices:</h4>
+             <p><strong className="font-medium text-gray-700 dark:text-gray-300 w-24 inline-block">Pace:</strong> {getLabel(paceOptions, watchedValues.pace)}</p>
+             <p><strong className="font-medium text-gray-700 dark:text-gray-300 w-24 inline-block">Budget:</strong> {getLabel(budgetOptions, watchedValues.budget)}</p>
+             <p><strong className="font-medium text-gray-700 dark:text-gray-300 w-24 inline-block">Interests:</strong> {getLabels(interestOptions, watchedValues.interests)}</p>
+             <p><strong className="font-medium text-gray-700 dark:text-gray-300 w-24 inline-block">Accommodation:</strong> {getLabels(accommodationOptions, watchedValues.accommodation)}</p>
         </div>
     );
 }
 
-export default HomePage;
+// Define steps configuration using the component functions
+const preferenceSteps = [
+    { id: 'pace', label: 'Preferred Travel Pace', Component: PaceInput },
+    { id: 'budget', label: 'Typical Budget Level', Component: BudgetInput },
+    { id: 'interests', label: 'Interests', Component: InterestsInput },
+    { id: 'accommodation', label: 'Preferred Accommodation', Component: AccommodationInput },
+    { id: 'summary', label: 'Confirm Preferences', Component: SummaryDisplay },
+];
+const TOTAL_STEPS = preferenceSteps.length;
+
+
+// --- Main Scrollable Form Component ---
+interface PreferencesFormProps {
+    initialPreferences?: UserPreferences | null;
+    onSaveSuccess?: (prefs: UserPreferences) => void;
+}
+
+export function ScrollablePreferencesForm({ initialPreferences, onSaveSuccess }: PreferencesFormProps) {
+    const { currentUser, isLoading: authLoading, refetchUser } = useAuth(); // Removed unused router
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [currentStepIndex, setCurrentStepIndex] = useState(0);
+    const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+    // Initialize refs array length
+     useEffect(() => { stepRefs.current = stepRefs.current.slice(0, TOTAL_STEPS); }, []);
+
+    // Form Hook using the corrected schema approach
+    const form = useForm<PreferencesFormValues>({
+        resolver: zodResolver(preferencesFormSchema),
+        defaultValues: { // Explicit defaults
+            pace: initialPreferences?.pace ?? null,
+            budget: initialPreferences?.budget ?? null,
+            interests: initialPreferences?.interests ?? [],
+            accommodation: initialPreferences?.accommodation ?? [],
+        },
+        mode: 'onChange',
+    });
+    const { control, handleSubmit, reset, trigger } = form;
+
+    // Effect to reset form when initial data changes
+    useEffect(() => {
+        reset({
+            pace: initialPreferences?.pace ?? null,
+            budget: initialPreferences?.budget ?? null,
+            interests: initialPreferences?.interests ?? [],
+            accommodation: initialPreferences?.accommodation ?? [],
+        });
+    }, [initialPreferences, reset]);
+
+    // --- Scrolling Function ---
+    const scrollToStep = (index: number) => {
+        stepRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setCurrentStepIndex(index);
+    };
+
+    // --- Navigation Handlers ---
+    const handleNextStep = async () => {
+        const currentFieldId = preferenceSteps[currentStepIndex].id;
+        if (currentFieldId !== 'summary') {
+            const isValid = await trigger(currentFieldId as keyof PreferencesFormValues);
+            if (!isValid) return; // Stop if validation fails
+        }
+        const nextIndex = Math.min(currentStepIndex + 1, TOTAL_STEPS - 1);
+        scrollToStep(nextIndex);
+    };
+
+    const handlePrevStep = () => {
+        const prevIndex = Math.max(currentStepIndex - 1, 0);
+        scrollToStep(prevIndex);
+    };
+
+    // --- Form Submission ---
+    async function onSubmit(values: PreferencesFormValues) {
+        if (!currentUser) { setError("Authentication error."); return; }
+        setIsSaving(true); setError(null); setSuccessMessage(null);
+        try {
+            const submissionData: UserPreferences = {
+                pace: values.pace || null,
+                budget: values.budget || null,
+                interests: values.interests ?? [], // Coalesce to empty array
+                accommodation: values.accommodation ?? [], // Coalesce to empty array
+            };
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+            const response = await fetch(`${backendUrl}/api/user/profile/preferences`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify(submissionData),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'Failed to save.');
+            setSuccessMessage("Preferences saved successfully!");
+            await refetchUser(); // Update auth context
+            if (onSaveSuccess) onSaveSuccess(submissionData); // Callback
+            setTimeout(() => setSuccessMessage(null), 3000);
+        } catch (err: any) { setError(err.message || "An error occurred."); }
+        finally { setIsSaving(false); }
+    }
+
+    // Use authLoading from useAuth directly
+    if (authLoading) { return <div className="flex justify-center p-10"><Loader2 className="h-8 w-8 animate-spin" /></div>; }
+
+    const progressValue = ((currentStepIndex + 1) / TOTAL_STEPS) * 100;
+
+    return (
+        <div className="w-full max-w-lg mx-auto">
+            <Card className="shadow-xl border-gray-200 dark:border-gray-700">
+                <CardHeader className="sticky top-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-10 border-b">
+                    <Progress value={progressValue} className="w-full h-2 mb-3" />
+                    <CardTitle className="text-xl font-semibold text-center">Your Travel Preferences</CardTitle>
+                    <CardDescription className="text-center text-sm text-gray-500 dark:text-gray-400 pt-1">
+                        Step {currentStepIndex + 1} of {TOTAL_STEPS}: {preferenceSteps[currentStepIndex].label}
+                    </CardDescription>
+                </CardHeader>
+
+                 <Form {...form}> {/* Pass the full form object here */}
+                     <form onSubmit={handleSubmit(onSubmit)}>
+                         {/* Scrollable content area */}
+                         <CardContent className="space-y-10 p-4 md:p-6 max-h-[calc(100vh-300px)] overflow-y-auto" id="preference-scroll-area">
+                            {preferenceSteps.map(({ id, Component }, index) => (
+                                // Section for each step
+                                <div
+                                    key={id}
+                                    ref={el => { stepRefs.current[index] = el; }}
+                                    id={`step-${id}`}
+                                    className="py-4 scroll-mt-24 border-b last:border-b-0 dark:border-gray-700 outline-none"
+                                    tabIndex={-1} // Make focusable for scrolling
+                                >
+                                    {/* Render the specific component, passing control */}
+                                    <Component control={control} isSaving={isSaving} />
+                                </div>
+                            ))}
+                         </CardContent>
+
+                         {/* Sticky Footer */}
+                         <CardFooter className="flex justify-between border-t pt-4 pb-4 sticky bottom-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm z-10">
+                            <Button type="button" variant="outline" onClick={handlePrevStep} disabled={currentStepIndex === 0 || isSaving}>
+                                <ArrowUp className="mr-2 h-4 w-4" /> Previous
+                            </Button>
+                            {currentStepIndex < TOTAL_STEPS - 1 ? (
+                                <Button type="button" onClick={handleNextStep} disabled={isSaving}>
+                                    Next <ArrowDown className="ml-2 h-4 w-4" />
+                                </Button>
+                            ) : (
+                                <Button type="submit" className="bg-[#ff0050] hover:bg-black text-white" disabled={isSaving}>
+                                    {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Saving...</> : <><Save className="mr-2 h-4 w-4"/> Save Preferences</>}
+                                </Button>
+                            )}
+                         </CardFooter>
+                     </form>
+                 </Form> {/* Closing Form Provider */}
+
+                 {/* Global Error/Success Below Footer */}
+                 {(error || successMessage) && (
+                    <div className={`p-3 text-center text-sm font-medium border-t ${error ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-green-600 bg-green-50 dark:bg-green-900/30'}`}>
+                         {error || successMessage}
+                         {successMessage && <CheckCircle className="inline-block ml-2 h-4 w-4" />}
+                    </div>
+                 )}
+            </Card>
+        </div>
+    );
+}
+
+export default ScrollablePreferencesForm;

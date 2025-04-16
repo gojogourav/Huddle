@@ -19,8 +19,10 @@ export const fetchCurrUserProfile = async (
         name: true,
         email: true,
         username: true,
+        profilePic:true,
         posts:true,
-        preferences:true
+        preferences:true,
+        activeTourPlan:true
       }
     });
 
@@ -205,13 +207,14 @@ export const updateProfile = async (req: AuthenticationRequest, res: Response) =
       res.status(401).json({ message: 'Not authorized' });
       return;
     }
-    const { profilePic, bio, username, email } = await req.body
+    const { profilePic, bio, username, email,name } = await req.body
     // TODO:password updating feature
     const updatedProfile = await prisma.user.update({
       where: {
         id: userId,
       },
       data: {
+        name,
         username: username,
         profilePic,
         bio,

@@ -13,8 +13,8 @@ function Topbar() {
         return;
     }
     const link = [
-        { href: '/settings', icon: Settings, label: 'Settings' },
-        { href: '/notifications', icon: Bell, label: 'Notification' }
+        { href: '/settings/preferences', icon: Settings, label: 'Settings' },
+        // { href: '/notifications', icon: Bell, label: 'Notification' }
     ]
     return (
         <div className='md:hidden text-2xl fixed left-0 right-0 z-50 w-full top-0 flex justify-between pt-5 px-5 items-center text-black font-extrabold font-sans '>
