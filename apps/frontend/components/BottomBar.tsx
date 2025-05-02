@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 
 function Bottombar() {
     const path = usePathname();
-    const { currentUser, isLoading } = useAuth();
+    const { currentUser, isLoading, logout } = useAuth();
 
 
     if (path.includes('/register')||path.includes('/login')||path.includes('/signup')||path.includes('/dashboard')||path.includes('/verify/')) {
@@ -20,7 +20,7 @@ function Bottombar() {
         { href: '/explore', icon: Compass, label: 'Explore' },
         { href: `/profile/${currentUser?.username}`, icon: User, label: 'Profile' },
     ];
-
+if(currentUser){
     return (
         <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-neutral-200  bg-white px-2 py-3 dark:border-neutral-700 dark:bg-neutral-900 md:hidden">
 
@@ -44,6 +44,7 @@ function Bottombar() {
             })}
         </nav>
     );
+}
 }
 
 export default Bottombar;

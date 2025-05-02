@@ -2,30 +2,27 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, Sparkles, Settings, Info, AlertCircle } from 'lucide-react';
-
-import { useAuth } from '@/hooks/useAuth'; // Adjust path
-import { ScrollablePreferencesForm } from '@/components/PreferencesForm'; // Adjust path
+import { Loader2, Sparkles, Settings, Info, AlertCircle, Compass, MapPinned } from 'lucide-react';
+import { useRef } from 'react';
+import { useAuth } from '@/hooks/useAuth'; 
 import PlanDisplay from '@/components/PlnDisplay';
-import { UserPreferences } from '@/lib/preferencesOptions'; // Adjust path
+import { UserPreferences } from '@/lib/preferencesOptions'; 
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // For preference prompt
-import { Input } from '@/components/ui/input'; // For location input if generating directly
+import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'; // For location input form
-import * as z from 'zod'; // For location input validation
+import * as z from 'zod'; 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Router } from 'next/router';
 import { useRouter } from 'next/navigation';
+// import InfiniteBanner from '@/components/homepage/InfiniteBanner';
 
 
-// --- Types (Import or define) ---
 interface ScheduleItem { time_slot: string; activity_title: string; description: string; local_insight: string; estimated_duration_minutes: number; budget_indicator: string; transport_suggestion?: string; }
 interface GeneratedOneDayPlan { plan_title: string; location: string; date_applicable: string; plan_summary: string; schedule: ScheduleItem[]; }
 
-// --- Schema for simple location input ---
 const locationSchema = z.object({
     location: z.string().min(3, "Please enter a valid city/area").max(100),
 });
@@ -33,33 +30,26 @@ type LocationFormValues = z.infer<typeof locationSchema>;
 
 
 function HomePage() {
-    // --- State ---
     const { currentUser, isLoading: authLoading, refetchUser } = useAuth();
-    // Store the active plan (could be from context or fetched)
     const [activePlan, setActivePlan] = useState<GeneratedOneDayPlan | null>(null);
     const [activePlanId, setActivePlanId] = useState<string | null>(null);
-    // State for managing plan generation directly on this page
-    const [showGenerateForm, setShowGenerateForm] = useState(false); // Toggle for generation UI
+    const [showGenerateForm, setShowGenerateForm] = useState(false); 
     const [isGenerating, setIsGenerating] = useState(false);
     const [generateError, setGenerateError] = useState<string | null>(null);
-    // State to track if initial check for active plan/prefs is done
     const [isInitialCheckLoading, setIsInitialCheckLoading] = useState(true);
-    const [hasPreferences, setHasPreferences] = useState(false); // Track if user has minimum prefs set
+    const [hasPreferences, setHasPreferences] = useState(false); 
+    const featuresRef = useRef<HTMLDivElement|null> (null);
 
-
-    // --- Form for Location Input (used if generating directly) ---
     const locationForm = useForm<LocationFormValues>({
         resolver: zodResolver(locationSchema),
         defaultValues: { location: '' },
     });
 
-    // --- Effect to Check for Active Plan and Preferences on Load ---
     useEffect(() => {
         setIsInitialCheckLoading(true);
         console.log("[HomePage] Auth Loading:", authLoading, "CurrentUser:", !!currentUser);
 
         if (!authLoading && currentUser) {
-            // Option 1: Check currentUser from AuthContext (if it includes activeTourPlan and preferences)
              const userWithDetails = currentUser as typeof currentUser & { preferences?: UserPreferences | null; activeTourPlan?: { id: string; planData: any | null } | null }; // Type assertion
 
             const prefs = userWithDetails.preferences;
@@ -71,36 +61,32 @@ function HomePage() {
             if (plan?.planData) {
                 console.log("[HomePage] Active plan found in AuthContext.");
                  try {
-                    // Attempt to parse planData. Ensure backend stores valid JSON.
-                    // The 'planData' might be stored as a string or already parsed depending on Prisma/backend.
                     const parsedPlan = typeof plan.planData === 'string' ? JSON.parse(plan.planData) : plan.planData;
-                     // TODO: Add more robust validation of parsedPlan structure here
                      if (parsedPlan && parsedPlan.schedule) {
                          setActivePlan(parsedPlan as GeneratedOneDayPlan);
                          setActivePlanId(plan.id);
-                         setShowGenerateForm(false); // Hide generator if active plan exists
+                         setShowGenerateForm(false);
                      } else {
                          console.warn("Active plan data found but structure is invalid.");
-                         setActivePlan(null); // Treat invalid plan as no active plan
+                         setActivePlan(null); 
                          setActivePlanId(null);
-                         setShowGenerateForm(true); // Show generator if plan is invalid
+                         setShowGenerateForm(true);
                      }
 
                  } catch (e) {
                      console.error("Failed to parse active plan data:", e);
-                     setActivePlan(null); // Treat parse error as no active plan
+                     setActivePlan(null); 
                      setActivePlanId(null);
-                     setShowGenerateForm(true); // Show generator if plan is invalid
+                     setShowGenerateForm(true); 
                  }
 
             } else {
                  console.log("[HomePage] No active plan found in AuthContext.");
                  setActivePlan(null);
                  setActivePlanId(null);
-                 setShowGenerateForm(true); // Show generator if no active plan
+                 setShowGenerateForm(true);
             }
 
-            // Check if user has minimum required preferences (e.g., interests)
             if (prefs && Array.isArray(prefs.interests) && prefs.interests.length > 0) {
                  setHasPreferences(true);
                  console.log("[HomePage] User has preferences set.");
@@ -111,22 +97,19 @@ function HomePage() {
             setIsInitialCheckLoading(false);
 
         } else if (!authLoading && !currentUser) {
-            // User is not logged in
             console.log("[HomePage] User not logged in.");
             setActivePlan(null);
             setActivePlanId(null);
-            setShowGenerateForm(false); // Don't show generator if logged out
+            setShowGenerateForm(false);
             setHasPreferences(false);
             setIsInitialCheckLoading(false);
         }
-         // If authLoading is still true, wait for the next render cycle
          else {
             console.log("[HomePage] Waiting for auth check...");
          }
 
-    }, [currentUser, authLoading]); // Rerun when auth state changes
+    }, [currentUser, authLoading]); 
 
-    // --- Handler for Generating a Plan Directly ---
     const handleGeneratePlan = async (values: LocationFormValues) => {
         if (!currentUser || !hasPreferences) {
             setGenerateError("Cannot generate plan. Ensure you are logged in and have set preferences.");
@@ -135,7 +118,7 @@ function HomePage() {
         setIsGenerating(true); setGenerateError(null);
 
         try {
-            const requestBody = { location: values.location }; // Backend uses saved prefs
+            const requestBody = { location: values.location }; 
             const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
             const response = await fetch(`${backendUrl}/api/tour-plan/generate`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -145,61 +128,130 @@ function HomePage() {
             if (!response.ok || !data.success) throw new Error(data.message || 'Failed to generate plan.');
 
             console.log("Generated Plan Directly:", data);
-            setActivePlan(data.plan); // Display the new plan
+            setActivePlan(data.plan); 
             setActivePlanId(data.planId);
-            setShowGenerateForm(false); // Hide form after generation
-            // Optional: Trigger refetchUser if backend sets the new plan as active
-            // await refetchUser();
+            setShowGenerateForm(false); 
 
         } catch (err: any) {
             console.error("Direct Plan Generation Error:", err);
             setGenerateError(err.message || "An unexpected error occurred.");
-            setActivePlan(null); // Clear any previous plan on error
+            setActivePlan(null); 
         } finally {
             setIsGenerating(false);
         }
     };
 
-    // --- Handler for when Preferences are Saved (from PreferencesForm) ---
     const handlePreferencesSaved = (savedPrefs: UserPreferences) => {
         console.log("[HomePage] Preferences saved callback received.");
-        // Assume refetchUser already updated currentUser in context
-        // Re-evaluate if preferences are now sufficient
         if (savedPrefs.interests && savedPrefs.interests.length > 0) {
              setHasPreferences(true);
-             // Keep generate form visible, user might want to generate immediately
              setShowGenerateForm(true);
-             // Clear any previous 'set preferences' error
         }
-        // Potentially clear active plan if prefs changed significantly? Optional.
-        // setActivePlan(null);
-        // setActivePlanId(null);
     };
 
 
-    // --- Render Logic ---
     if (isInitialCheckLoading || authLoading) {
         return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-16 w-16 animate-spin text-[#ff0050]" /></div>;
     }
 
-    // Logged Out State
     if (!currentUser) {
          return (
-             <div className="min-h-screen flex flex-col items-center justify-center text-center p-6">
-                 <h1 className="text-4xl font-bold mb-4 text-cyan-700">Welcome to Your Tour Planner!</h1>
-                 <p className="text-lg text-gray-600 mb-8">Log in or sign up to create personalized travel itineraries.</p>
-                 <div className="flex gap-4">
-                     <Button asChild size="lg" className="bg-[#ff0050] hover:bg-black text-white"><Link href="/login">Login</Link></Button>
-                     <Button asChild size="lg" variant="outline"><Link href="/register">Register</Link></Button>
-                 </div>
-             </div>
+          <div className="min-h-screen flex flex-col  bg-gradient-to-br from-cyan-50 via-white to-blue-100 scroll-smooth dark:from-slate-900 dark:via-gray-900 dark:to-black">
+
+          <main className="flex-grow flex flex-col">
+              <section className="relative flex flex-col  items-center justify-center text-center min-h-[60vh] md:min-h-[75vh] px-4 pt-24 pb-16 overflow-hidden">
+                  <div className="relative z-10 max-w-3xl">
+                      <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-4 text-gray-900 dark:text-gray-50">
+                          Plan Your Perfect <span className="text-[#0b6dff]">Day Trip</span>, Effortlessly.
+                      </h1>
+                      <p className="text-lg md:text-xl text-gray-600 dark:text-gray-400 mb-8 max-w-xl mx-auto">
+                          Stop searching, start exploring. Huddle uses AI and your preferences to craft unique, local-infused itineraries in minutes.
+                      </p>
+                      <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+                          <Button size="lg" asChild className="bg-[#0b6dff] hover:bg-black text-white px-8 py-3 text-lg w-full sm:w-auto">
+                              <Link href="/register">Get Started Free</Link>
+                          </Button>
+                          <Button variant="outline" size="lg" asChild className="px-8 py-3 text-lg w-full sm:w-auto border-gray-400 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
+                              <Link href="#features" onClick={(e)=> 
+                             { 
+                               e.preventDefault();
+                              featuresRef.current?.scrollIntoView({
+                                "behavior":"smooth",
+                              })}}>Learn More</Link>
+                          </Button>
+                      </div>
+                  </div>
+              </section>
+
+              <section id="features"  ref={featuresRef} className="scroll-mt-28 scroll-smooth py-16 md:py-24 bg-white dark:bg-gray-900/50">
+                  <div className="container mx-auto px-4 max-w-5xl">
+                      <h2 className="text-3xl md:text-4xl font-bold text-center mb-12 text-gray-800 dark:text-gray-100">How Huddle Works</h2>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
+                          <div className="flex flex-col items-center text-center p-6 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50">
+                              <div className="p-3 rounded-full bg-[#ff0050]/10 mb-4">
+                                   <Settings className="h-8 w-8 text-[#0b6dff]" />
+                              </div>
+                              <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-gray-100">1. Set Preferences</h3>
+                              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                                  Tell us your travel style – pace, budget, interests, and preferred accommodation. Quick & easy multiple choice.
+                              </p>
+                          </div>
+                          <div className="flex flex-col items-center text-center p-6 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50">
+                               <div className="p-3 rounded-full bg-cyan-500/10 mb-4">
+                                   <Sparkles className="h-8 w-8 text-cyan-500" />
+                               </div>
+                              <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-gray-100">2. Generate Plan</h3>
+                              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                                  Enter your destination city or area. Our AI crafts a unique, detailed one-day itinerary just for you in seconds.
+                              </p>
+                          </div>
+                           <div className="flex flex-col items-center text-center p-6 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-800/50">
+                              <div className="p-3 rounded-full bg-green-500/10 mb-4">
+                                  <Compass className="h-8 w-8 text-green-500" />
+                              </div>
+                              <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-gray-100">3. Explore!</h3>
+                              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                                  Follow your personalized timeline, discover local gems, enjoy authentic experiences, and make the most of your day.
+                              </p>
+                          </div>
+                      </div>
+                  </div>
+              </section>
+
+              <section className="py-16 md:py-24 bg-gradient-to-br from-cyan-50 via-white to-pink-100 dark:from-slate-900 dark:via-gray-900 dark:to-black">
+                   <div className="container mx-auto px-4 max-w-3xl text-center">
+                        <blockquote className="text-xl italic text-gray-700 dark:text-gray-300 mb-4">
+                            "Huddle planned my Bangalore day trip perfectly! Discovered amazing street food I wouldn't have found otherwise. So much better than generic guides."
+                        </blockquote>
+                        <p className="font-semibold text-gray-600 dark:text-gray-400">- Happy Traveler</p>
+                   </div>
+                   <div>
+                    {/* <InfiniteBanner clock={undefined} children={undefined}/> */}
+                   </div>
+              </section>
+
+               <section className="py-16 md:py-20 bg-white dark:bg-gray-900/50">
+                  <div className="container mx-auto px-4 max-w-3xl text-center">
+                      <h2 className="text-3xl md:text-4xl font-bold mb-4 text-gray-800 dark:text-gray-100">Ready to Explore?</h2>
+                      <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">
+                          Sign up today and generate your first personalized travel plan for free!
+                      </p>
+                       <Button size="lg" asChild className="bg-[#0b6dff] hover:bg-black text-white px-10 py-3 text-lg">
+                          <Link href="/register">Create Your Plan</Link>
+                       </Button>
+                  </div>
+               </section>
+          </main>
+
+          <footer className="py-6 px-4 md:px-8 text-center text-xs text-gray-500 dark:text-gray-400 border-t dark:border-gray-800 bg-gray-50 dark:bg-slate-900">
+              © {new Date().getFullYear()} Huddle App. All rights reserved. | <Link href="/privacy" className="hover:underline">Privacy Policy</Link> | <Link href="/terms" className="hover:underline">Terms of Service</Link>
+          </footer>
+      </div>
         );
     }
 const router = useRouter()
-    // Logged In State
     return (
-        <div className="container pt-20 mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Logged Out State */}
+        <div className="container overflow-hidden   rounded-xl  mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {!currentUser ? (
             <div className="min-h-screen flex flex-col items-center justify-center text-center p-6 space-y-8">
               <div className="space-y-4">
@@ -221,19 +273,17 @@ const router = useRouter()
               </div>
             </div>
           ) : (
-            /* Logged In State */
             <div className="max-w-7xl mx-auto">
-              {/* Active Plan Section */}
               {activePlan ? (
-                <div className="space-y-8">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="">
+                  <div className="flex flex-col   md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
                       <h1 className="text-3xl font-bold text-gray-900">Your Active Plan</h1>
                       <p className="text-gray-500 mt-1">{activePlan.location} • {activePlan.date_applicable}</p>
                     </div>
                     <Button 
                       onClick={() => router.push('/plan/generate')}
-                      className="bg-[#ff0050] hover:bg-[#e00040]"
+                      className="bg-[#0b6dff] hover:bg-black cursor-pointer"
                     >
                       <Sparkles className="mr-2 h-4 w-4" />
                       New Plan
@@ -242,7 +292,6 @@ const router = useRouter()
                   <PlanDisplay plan={activePlan} planId={activePlanId ?? undefined} />
                 </div>
               ) : (
-                /* Generation Section */
                 <div className="flex flex-col items-center">
                   {hasPreferences ? (
                     <Card className="w-full max-w-2xl shadow-xl rounded-2xl border border-gray-100">
@@ -290,7 +339,7 @@ const router = useRouter()
                             )}
                             <Button
                               type="submit"
-                              className="w-full h-12 text-lg bg-gradient-to-r from-[#ff0050] to-cyan-600 hover:from-[#e00040] hover:to-cyan-700 text-white rounded-lg"
+                              className="w-full h-12 text-lg bg-gradient-to-r from-[#0b6dff] to-cyan-600 hover:from-[#e00040] hover:to-cyan-700 text-white rounded-lg"
                               disabled={isGenerating}
                             >
                               {isGenerating ? (
@@ -305,7 +354,6 @@ const router = useRouter()
                       </CardContent>
                     </Card>
                   ) : (
-                    /* Preferences Section */
                     <div className="w-full max-w-2xl space-y-8">
                       <Alert className="bg-blue-50 border-blue-200 rounded-xl">
                         <div className="flex items-start gap-3">

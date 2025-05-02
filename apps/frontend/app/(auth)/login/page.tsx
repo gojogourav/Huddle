@@ -135,7 +135,7 @@ function LoginForm() {
 
                         <Button
                             type="submit"
-                            className="w-full py-3 bg-[#ff0050] hover:bg-black text-white rounded-md transition-colors flex items-center justify-center"
+                            className="w-full py-3 bg-[#0b6dff] cursor-pointer hover:bg-black text-white rounded-md transition-colors flex items-center justify-center"
                             disabled={isLoading} // Disable button when loading
                         >
                             {isLoading ? (
@@ -151,7 +151,7 @@ function LoginForm() {
                         <div className="text-center mt-4">
                             <span className="text-sm text-neutral-500">
                                 Don't have an account?{" "}
-                                <Link href="/register" className="font-medium text-[#ff0050] hover:underline">
+                                <Link href="/register" className="font-medium text-[#0b6dff] hover:underline">
                                     Register
                                 </Link>
                             </span>

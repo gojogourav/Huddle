@@ -12,6 +12,9 @@ export function middleware(req: NextRequest) {
 
     // --- Scenario 1: User DOES NOT have a refresh token ---
     if (!refreshToken) {
+        if(pathname==='/'){
+            return NextResponse.next()
+        }
         // If they are trying to access a PROTECTED path without a token, redirect to login
         if (!isAccessingNonProtectedRoute) {
             console.log(`[Middleware] No token, accessing protected path (${pathname}). Redirecting to /login.`);

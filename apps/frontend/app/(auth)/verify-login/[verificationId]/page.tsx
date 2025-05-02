@@ -142,7 +142,7 @@ function VerifyLoginForm() {
 
                         <Button
                             type="submit"
-                            className='w-full py-3 bg-[#ff0050] hover:bg-black text-white rounded-md transition-colors flex items-center justify-center'
+                            className='w-full py-3 bg-[#0b6dff] hover:bg-black cursor-pointer text-white rounded-md transition-colors flex items-center justify-center'
                             disabled={isLoading || !!successMessage}
                         >
                             {isLoading ? (
@@ -155,11 +155,10 @@ function VerifyLoginForm() {
                             )}
                         </Button>
 
-                         {/* Optional: Link back to login if they need to restart */}
                          {!successMessage && (
                              <div className="text-center mt-4">
                                  <Link href="/login">
-                                     <span className="text-sm text-neutral-500 hover:text-[#ff0050]">Back to Login</span>
+                                     <span className="text-sm text-neutral-500 hover:text-[#0b6dff] hover:underline hover:font-bold">Back to Login</span>
                                  </Link>
                              </div>
                          )}
@@ -170,5 +169,4 @@ function VerifyLoginForm() {
     );
 }
 
-// Ensure the export matches the filename expectation (e.g., page.tsx uses default export)
 export default VerifyLoginForm;
