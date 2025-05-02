@@ -1,7 +1,0 @@
-{
-    "version": 2,
-    "buildCommand": "turbo run build --filter=frontend",
-    "installCommand": "npm install",
-    "framework": "nextjs",
-    "outputDirectory": "apps/frontend/.next"
-  }
